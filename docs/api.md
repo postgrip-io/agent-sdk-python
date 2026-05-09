@@ -19,7 +19,8 @@ The full public surface re-exported from `postgrip_agent`.
 |:---------------------------------------------------------------------------|:---------------------------------------------------------|
 | `@workflow.defn`                                                           | Marks a class as a workflow definition. Triggers the AST sandbox. |
 | `@workflow.run`                                                            | Marks the entrypoint coroutine on a `@workflow.defn` class.       |
-| `@workflow.signal` / `@workflow.query` / `@workflow.update`                | Register signal / query / update handlers.                |
+| `workflow.define_signal(name)` / `define_query(name)` / `define_update(name)` | Declare a signal / query / update name; returns a definition.    |
+| `workflow.set_handler(definition, handler)`                                | Bind a handler method to a definition. Call from `__init__` so each replay re-registers. |
 | `@activity.defn`                                                           | Marks an async function as an activity definition.        |
 
 ## Workflow runtime helpers (call from inside `@workflow.run`)
@@ -29,8 +30,8 @@ The full public surface re-exported from `postgrip_agent`.
 | `workflow.now()`                                                                    | Workflow-deterministic current time.                     |
 | `await workflow.sleep(d)`                                                           | Durable timer. Replaces `asyncio.sleep` in workflow code.|
 | `await workflow.execute_activity(name_or_fn, *args, ...)`                           | Schedule an activity, suspend until completion.          |
-| `await workflow.execute_child_workflow(workflow_class, *args, ...)`                 | Schedule a child workflow.                               |
-| `await workflow.wait_condition(lambda: ..., timeout=None)`                          | Suspend until the predicate is true (or timeout).        |
+| `await workflow.execute_child(workflow_class, *args, ...)`                 | Schedule a child workflow.                               |
+| `await workflow.condition(lambda: ..., timeout=None)`                          | Suspend until the predicate is true (or timeout).        |
 | `workflow.continue_as_new(*args)`                                                   | Restart the current workflow with fresh history.         |
 | `workflow.milestone(name, index=..., total=...)`                                    | Emit a milestone event for the workflow task.            |
 | `workflow.info()`                                                                   | Workflow id, run id, task queue, type.                   |
@@ -40,10 +41,9 @@ The full public surface re-exported from `postgrip_agent`.
 
 | Name                                                                       | Purpose                                                  |
 |:---------------------------------------------------------------------------|:---------------------------------------------------------|
-| `activity.heartbeat(details=None)`                                         | Long-running activities ping this on a timer.            |
-| `activity.milestone(name, index=..., total=...)`                           | Emit a milestone event for the activity task.            |
+| `await activity.heartbeat(details=None)`                                   | Long-running activities ping this on a timer. Raises `CancelledFailure` if the runtime service has requested cancellation. |
+| `await activity.milestone(name, index=..., total=...)`                     | Emit a milestone event for the activity task.            |
 | `activity.info()`                                                          | Task id, activity type.                                  |
-| `activity.is_cancelled()`                                                  | Returns True if the runtime service requested cancellation.|
 
 ## Errors
 

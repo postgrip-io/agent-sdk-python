@@ -78,7 +78,7 @@ async def greet(name: str) -> str:
 
 # Workflows are classes with @workflow.run as the entrypoint coroutine.
 # Inside the body, use workflow.execute_activity, workflow.sleep,
-# workflow.execute_child_workflow for durable operations.
+# workflow.execute_child for durable operations.
 @workflow.defn(name="SayHelloWorkflow")
 class SayHelloWorkflow:
     @workflow.run
