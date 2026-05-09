@@ -1,15 +1,27 @@
 # PostGrip Agent Python SDK
 
+Companion of [`agent-sdk-go`](https://github.com/postgrip-io/agent-sdk-go) and [`agent-sdk-typescript`](https://github.com/postgrip-io/agent-sdk-typescript). Wire shapes are tracked in [`agent-sdk-protocol`](https://github.com/postgrip-io/agent-sdk-protocol).
+
 Install from PyPI after publishing:
 
 ```bash
 pip install postgrip-agent
 ```
 
-For local development from this repository:
+For local development from a clone of this repository:
 
 ```bash
-pip install -e postgrip-agent/python
+pip install -e .
+PYTHONPATH=src python -m unittest discover -s test
+```
+
+## Layout
+
+```text
+src/postgrip_agent/   # Python package — Connection / Client / Agent / workflow runtime
+test/                 # unittest-style tests
+doc/                  # reserved for longer-form prose docs
+.github/workflows/    # CI: build wheel + run tests on 3.11 / 3.12 / 3.13
 ```
 
 The package exposes a Temporal-style Python API:
