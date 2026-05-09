@@ -45,6 +45,7 @@ class TaskResult(TypedDict, total=False):
 
 class Task(TypedDict, total=False):
     id: str
+    tenantId: str
     namespace: str
     queue: str
     type: str
@@ -63,6 +64,7 @@ class Task(TypedDict, total=False):
 
 class TaskEvent(TypedDict, total=False):
     id: str
+    tenantId: str
     task_id: str
     agent_id: str
     kind: TaskEventKind
@@ -84,11 +86,23 @@ class TaskEventInput(TypedDict, total=False):
 
 
 class EnqueueTaskRequest(TypedDict, total=False):
+    tenantId: str
     namespace: str
     queue: str
     type: str
     payload: Any
     lease_timeout_seconds: int
+
+
+class ActivityTaskPayload(TypedDict, total=False):
+    activityType: str
+    args: list[Any]
+    workflowId: str
+    workflowRunId: str
+    workflowTaskId: str
+    attempt: int
+    cancellationType: str
+    retry: "RetryPolicy"
 
 
 class RetryPolicy(TypedDict, total=False):
@@ -134,6 +148,7 @@ class ScheduleAction(TypedDict, total=False):
 
 class Schedule(TypedDict, total=False):
     id: str
+    tenantId: str
     namespace: str
     state: ScheduleState
     overlap_policy: ScheduleOverlapPolicy
@@ -297,6 +312,7 @@ class WorkflowExecutionDescription(TypedDict, total=False):
 
 class WorkflowExecution(TypedDict, total=False):
     id: str
+    tenantId: str
     run_id: str
     namespace: str
     type: str
@@ -317,6 +333,7 @@ class WorkflowExecution(TypedDict, total=False):
 class WorkflowHistoryEvent(TypedDict, total=False):
     id: str
     workflow_id: str
+    tenantId: str
     task_id: str
     type: str
     attributes: dict[str, Any]
