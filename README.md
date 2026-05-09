@@ -1,15 +1,14 @@
 # PostGrip Agent Python SDK
 
-[![Docs](https://img.shields.io/badge/docs-postgrip--io.github.io-2563EB?logo=github&logoColor=white)](https://postgrip-io.github.io/agent-sdk-python/)
-[![PyPI](https://img.shields.io/pypi/v/postgrip-agent?label=pypi&color=2563EB)](https://pypi.org/project/postgrip-agent/)
-[![Python](https://img.shields.io/pypi/pyversions/postgrip-agent?color=2563EB)](https://pypi.org/project/postgrip-agent/)
+[![Docs](https://img.shields.io/badge/docs-site-2563EB?logo=readthedocs&logoColor=white)](https://postgrip-io.github.io/agent-sdk-python/)
+[![PyPI version](https://img.shields.io/pypi/v/postgrip-agent.svg)](https://pypi.org/project/postgrip-agent/)
+[![Python versions](https://img.shields.io/pypi/pyversions/postgrip-agent.svg)](https://pypi.org/project/postgrip-agent/)
 [![CI](https://github.com/postgrip-io/agent-sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/postgrip-io/agent-sdk-python/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/postgrip-io/agent-sdk-python?color=2563EB)](LICENSE)
+[![License](https://img.shields.io/github/license/postgrip-io/agent-sdk-python.svg)](LICENSE)
 
 Companion of [`agent-sdk-go`](https://github.com/postgrip-io/agent-sdk-go) and [`agent-sdk-typescript`](https://github.com/postgrip-io/agent-sdk-typescript). Wire shapes are tracked in [`agent-sdk-protocol`](https://github.com/postgrip-io/agent-sdk-protocol).
 
 **Docs:** [postgrip-io.github.io/agent-sdk-python](https://postgrip-io.github.io/agent-sdk-python/) — quick start, workflow runtime, API guide.
-**PyPI:** [pypi.org/project/postgrip-agent](https://pypi.org/project/postgrip-agent/).
 
 Install from PyPI after publishing:
 
