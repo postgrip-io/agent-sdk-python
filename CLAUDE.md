@@ -53,7 +53,7 @@ Same model as the Go SDK, just async-Python-flavored. Each workflow task lease:
 1. Agent fetches the workflow's full durable history.
 2. Agent constructs a workflow runtime (`_WorkflowRuntime` in `workflow.py`) wired to the history cursor.
 3. Agent invokes the customer's `@workflow.run` coroutine.
-4. Calls inside the coroutine (`workflow.execute_activity`, `workflow.sleep`, `workflow.execute_child_workflow`, signal/query/update channel reads) consult the cursor first.
+4. Calls inside the coroutine (`workflow.execute_activity`, `workflow.sleep`, `workflow.execute_child`, signal/query/update channel reads) consult the cursor first.
    - History records this command, completed → return persisted result.
    - History records it, in-flight → `await` suspends until the runtime resolves the awaited future.
    - History exhausted → schedule a new command and suspend.

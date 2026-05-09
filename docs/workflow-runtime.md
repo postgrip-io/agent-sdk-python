@@ -9,7 +9,7 @@ Every time the runtime service hands a workflow task to an agent, the agent:
 1. Fetches the **full durable history** of the workflow from the runtime service.
 2. Builds an in-memory cursor over that history.
 3. Constructs a fresh workflow runtime context and **runs your `@workflow.run` coroutine from the top**.
-4. Each `await` inside the coroutine that touches workflow APIs (`workflow.execute_activity`, `workflow.sleep`, `workflow.execute_child_workflow`, `workflow.wait_condition`, signal channel reads) consults the replay cursor before scheduling anything new.
+4. Each `await` inside the coroutine that touches workflow APIs (`workflow.execute_activity`, `workflow.sleep`, `workflow.execute_child`, `workflow.condition`, signal channel reads) consults the replay cursor before scheduling anything new.
 
 The cursor advances by one event per call (per command type). What happens at each call:
 
@@ -52,7 +52,7 @@ Activities are the right place for non-deterministic work: HTTP calls, database 
 
 ```python
 from datetime import timedelta
-from postgrip_agent import workflow
+from postgrip_agent import RetryPolicy, workflow
 
 @workflow.defn
 class MyWorkflow:
@@ -62,7 +62,7 @@ class MyWorkflow:
             "FetchUser",
             user_id,
             schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=workflow.RetryPolicy(maximum_attempts=5),
+            retry_policy=RetryPolicy(maximum_attempts=5),
         )
         return resp["name"]
 ```
@@ -83,60 +83,77 @@ The first time your body reaches that line, the timer is enqueued and the `await
 
 ## Child workflows
 
-`workflow.execute_child_workflow` schedules a separate workflow execution and waits for its result. Same suspension semantics as `execute_activity`; the child runs its own replay loop.
+`workflow.execute_child` schedules a separate workflow execution and waits for its result. Same suspension semantics as `execute_activity`; the child runs its own replay loop.
 
-## Signals
+## Signals, queries, and updates
 
-Signals are inputs sent into a running workflow from outside. Workflow code declares signal handlers with `@workflow.signal`:
+Signals are inputs sent into a running workflow from outside. Queries are read-only state reads. Updates are synchronous-from-the-caller's-perspective handlers that may trigger commands. All three follow the same pattern: a top-level definition declares the name, then `workflow.set_handler` wires it to a method.
 
 ```python
+from postgrip_agent import workflow, CancelledFailure
+
+# Declare names at module scope so client and worker can reference them.
+on_message = workflow.define_signal("on_message")
+status = workflow.define_query("status")
+replace_messages = workflow.define_update("replace_messages")
+
+
 @workflow.defn
 class MyWorkflow:
     def __init__(self):
-        self._signals_received = []
+        self._messages: list[str] = []
+        # Register handlers from __init__ so each new replay re-registers them.
+        workflow.set_handler(on_message, self._handle_message)
+        workflow.set_handler(status, self._handle_status)
+        workflow.set_handler(replace_messages, self._handle_replace)
 
-    @workflow.signal
-    async def on_message(self, msg: str) -> None:
-        self._signals_received.append(msg)
+    async def _handle_message(self, msg: str) -> None:
+        self._messages.append(msg)
+
+    def _handle_status(self) -> dict:
+        # Query handlers are read-only — don't schedule commands here.
+        return {"received": len(self._messages)}
+
+    async def _handle_replace(self, msgs: list[str]) -> int:
+        self._messages = list(msgs)
+        return len(self._messages)
 
     @workflow.run
     async def run(self) -> list[str]:
-        await workflow.wait_condition(lambda: len(self._signals_received) >= 3)
-        return self._signals_received
+        await workflow.condition(lambda: len(self._messages) >= 3)
+        return self._messages
 ```
 
-`workflow.wait_condition` is the durable equivalent of polling: it suspends until the predicate is true, with the runtime service redelivering the task on every relevant history event.
+`workflow.condition` is the durable equivalent of polling: it suspends until the predicate is true, with the runtime service redelivering the task on every relevant history event.
 
-## Queries and updates
+From the client side, signals / queries / updates are sent through the workflow handle:
 
 ```python
-@workflow.query
-def status(self) -> dict:
-    return {"received": len(self._signals_received)}
-
-@workflow.update
-async def replace_messages(self, msgs: list[str]) -> int:
-    self._signals_received = list(msgs)
-    return len(self._signals_received)
+await handle.signal("on_message", "hello")
+state = await handle.query("status")
+count = await handle.execute_update("replace_messages", ["a", "b"])
 ```
-
-Queries are read-only; updates can trigger commands. Both register the same way and run inside replay.
 
 ## Cancellation
 
-When the runtime service receives a cancellation request, the next replay sees the corresponding history event. `workflow.execute_activity`, `workflow.sleep`, `workflow.execute_child_workflow`, and `workflow.wait_condition` all check for cancellation before scheduling new commands and raise `CancelledFailure` if requested.
+When the runtime service receives a cancellation request, the next replay sees the corresponding history event. `workflow.execute_activity`, `workflow.sleep`, `workflow.execute_child`, and `workflow.condition` all check for cancellation before scheduling new commands and raise `CancelledFailure` if requested.
 
 To cancel from the client side: `await handle.cancel("reason")`.
 
-For activities to react to cancellation, the activity body should check for cancellation in long-running loops:
+For activities to react to cancellation, periodically `await activity.heartbeat()` — when the runtime service has a cancellation request for an activity that's currently leased, the heartbeat call surfaces it as a `CancelledFailure`:
 
 ```python
+from postgrip_agent import activity, CancelledFailure
+
 @activity.defn
 async def long_running(items: list) -> int:
     count = 0
     for item in items:
-        if activity.is_cancelled():
-            raise CancelledFailure("agent cancellation requested")
+        try:
+            await activity.heartbeat({"processed": count})
+        except CancelledFailure:
+            # Clean up partial work, then propagate.
+            raise
         count += await process(item)
     return count
 ```
