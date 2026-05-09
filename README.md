@@ -1,2 +1,98 @@
-# agent-sdk-python
-PostGrip Agent SDK for Python
+# PostGrip Agent Python SDK
+
+Install from PyPI after publishing:
+
+```bash
+pip install postgrip-agent
+```
+
+For local development from this repository:
+
+```bash
+pip install -e postgrip-agent/python
+```
+
+The package exposes a Temporal-style Python API:
+
+```python
+import asyncio
+import os
+from datetime import timedelta
+
+from postgrip_agent import Client, Agent, activity, workflow
+
+
+@activity.defn
+async def greet(name: str) -> str:
+    return f"Hello {name}"
+
+
+@workflow.defn(name="SayHelloWorkflow")
+class SayHelloWorkflow:
+    @workflow.run
+    async def run(self, name: str) -> str:
+        return await workflow.execute_activity(
+            greet,
+            name,
+            schedule_to_close_timeout=timedelta(seconds=10),
+        )
+
+
+async def main() -> None:
+    client = await Client.connect(
+        "http://127.0.0.1:4100",
+        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
+    )
+    agent = Agent(
+        client,
+        task_queue="default",
+        workflows=[SayHelloWorkflow],
+        activities=[greet],
+    )
+    result = await agent.run_until(
+        client.execute_workflow(
+            SayHelloWorkflow,
+            "PostGrip",
+            id="say-hello",
+            task_queue="default",
+        )
+    )
+    print(result)
+
+
+asyncio.run(main())
+```
+
+This SDK targets the PostGrip Agent runtime API, not a Temporal server. It follows the familiar Temporal Python shape for client, agent, workflow, and activity code while using PostGrip Agent task queues and workflow history underneath.
+
+Implemented workflow APIs include durable activity scheduling/replay, durable timers via `workflow.sleep()`, query/signal/update handler replay, child workflow scheduling/replay, continue-as-new, cancellation scopes, and command-order determinism checks for activities, timers, and children.
+
+The Python agent supports bounded concurrent task execution with `max_concurrent_tasks` defaulting to `4`, graceful shutdown draining for in-flight tasks with an optional timeout, and automatic lease renewal for workflow, query, update, and activity tasks. Activities and workflows can emit ordered milestones with `activity.milestone("step name", index=1, total=10)` or `workflow.milestone(...)`; clients can stream those task events with `handle.watch_events()` or `client.task.watch_events(task_id)`. Workflow execution also performs sandbox checks that reject common nondeterministic APIs such as `time.time()`, `time.sleep()`, `asyncio.sleep()`, `random.*()`, and `uuid.uuid4()`; use `workflow.now()`, `workflow.sleep()`, explicit IDs, or activities for those operations.
+
+Public protocol types are available from `postgrip_agent.types` and are re-exported from `postgrip_agent`, including `Task`, `TaskEvent`, `WorkflowExecution`, `WorkflowHistoryEvent`, `RetryPolicy`, schedule request/response types, and workflow payload definitions. The package includes `py.typed` so type checkers can consume those annotations.
+
+Lower-level task API:
+
+```python
+client.task.shell_exec(command="echo", args=["hello from agent"])
+
+# Polyglot: the Go agent runs the command inside a per-task container
+# (proxied through the worker stack's docker socket proxy). The agent
+# process must have DOCKER_HOST set; the container runs with --rm
+# --network=none and no host mounts. The env-key allowlist rejects
+# DOCKER_*, POSTGRIP_*, and host loader/interpreter prefixes.
+client.task.container_exec(
+    image="node:22-alpine",
+    command="node",
+    args=["-e", "console.log('hi from node')"],
+    pull_policy="missing",
+    timeout_seconds=60,
+)
+```
+
+Package validation:
+
+```bash
+python -m pip wheel --no-deps postgrip-agent/python -w /tmp/postgrip-agent-wheel
+PYTHONPATH=postgrip-agent/python python -m unittest discover -s postgrip-agent/python/tests
+```

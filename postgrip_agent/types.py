@@ -1,0 +1,457 @@
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal, NotRequired, TypeAlias, TypedDict
+
+TaskState: TypeAlias = Literal["queued", "leased", "blocked", "succeeded", "failed"]
+TaskEventKind: TypeAlias = Literal["leased", "started", "heartbeat", "milestone", "progress", "stdout", "stderr", "completed", "failed"]
+ScheduleState: TypeAlias = Literal["active", "paused", "deleted"]
+ScheduleOverlapPolicy: TypeAlias = Literal["skip", "allow_all"]
+ScheduleMissedRunPolicy: TypeAlias = Literal["catch_up", "skip"]
+CancellationType: TypeAlias = Literal["try_cancel", "wait_cancellation_completed", "abandon"]
+CancellationScopeType: TypeAlias = Literal["cancellable", "non_cancellable"]
+WorkflowIdReusePolicy: TypeAlias = Literal["allow_duplicate", "allow_duplicate_failed_only", "reject_duplicate"]
+WorkflowFunction: TypeAlias = Callable[..., Awaitable[Any] | Any]
+ActivityFunction: TypeAlias = Callable[..., Awaitable[Any] | Any]
+WorkflowRegistry: TypeAlias = dict[str, WorkflowFunction]
+ActivityRegistry: TypeAlias = dict[str, ActivityFunction]
+
+
+class FailureInfo(TypedDict, total=False):
+    message: str
+    type: str
+    non_retryable: bool
+    details: list[Any]
+
+
+class ContinueAsNewResult(TypedDict):
+    workflow_id: str
+    workflow_type: str
+    task_queue: str
+    task_id: str
+
+
+class TaskResult(TypedDict, total=False):
+    exit_code: int
+    stdout: str
+    stderr: str
+    message: str
+    value: Any
+    failure: FailureInfo
+    continue_as_new: ContinueAsNewResult
+    started_at: str
+    finished_at: str
+
+
+class Task(TypedDict, total=False):
+    id: str
+    namespace: str
+    queue: str
+    type: str
+    payload: Any
+    state: TaskState
+    attempt: int
+    agent_id: str
+    lease_timeout_seconds: int
+    not_before: str
+    leased_until: str
+    created_at: str
+    updated_at: str
+    result: TaskResult
+    error: str
+
+
+class TaskEvent(TypedDict, total=False):
+    id: str
+    task_id: str
+    agent_id: str
+    kind: TaskEventKind
+    stage: str
+    message: str
+    stream: str
+    data: str
+    details: dict[str, Any]
+    created_at: str
+
+
+class TaskEventInput(TypedDict, total=False):
+    kind: TaskEventKind
+    stage: str
+    message: str
+    stream: str
+    data: str
+    details: dict[str, Any]
+
+
+class EnqueueTaskRequest(TypedDict, total=False):
+    namespace: str
+    queue: str
+    type: str
+    payload: Any
+    lease_timeout_seconds: int
+
+
+class RetryPolicy(TypedDict, total=False):
+    maximumAttempts: int
+    initialIntervalMs: int
+    backoffCoefficient: float
+    maximumIntervalMs: int
+    expirationIntervalMs: int
+    nonRetryableErrorTypes: list[str]
+
+
+class ScheduleCalendarSpec(TypedDict, total=False):
+    minute: list[int]
+    hour: list[int]
+    day_of_month: list[int]
+    month: list[int]
+    day_of_week: list[int]
+
+
+class ScheduleSpec(TypedDict, total=False):
+    interval_seconds: int
+    cron: str
+    calendar: ScheduleCalendarSpec
+    timezone: str
+    jitter_seconds: int
+    catch_up_window_seconds: int
+    missed_run_policy: ScheduleMissedRunPolicy
+    start_at: str
+
+
+class ScheduleAction(TypedDict, total=False):
+    namespace: str
+    queue: str
+    workflowType: str
+    workflowId: str
+    workflowIdReusePolicy: WorkflowIdReusePolicy
+    runTimeoutMs: int
+    retry: RetryPolicy
+    memo: dict[str, Any]
+    searchAttributes: dict[str, Any]
+    args: list[Any]
+
+
+class Schedule(TypedDict, total=False):
+    id: str
+    namespace: str
+    state: ScheduleState
+    overlap_policy: ScheduleOverlapPolicy
+    spec: ScheduleSpec
+    action: ScheduleAction
+    last_run_at: str
+    next_run_at: str
+    created_at: str
+    updated_at: str
+
+
+class CreateScheduleRequest(TypedDict):
+    spec: ScheduleSpec
+    action: ScheduleAction
+    id: NotRequired[str]
+    namespace: NotRequired[str]
+    overlap_policy: NotRequired[ScheduleOverlapPolicy]
+
+
+class UpdateScheduleRequest(TypedDict, total=False):
+    overlap_policy: ScheduleOverlapPolicy
+    spec: ScheduleSpec
+    action: ScheduleAction
+
+
+class PauseScheduleRequest(TypedDict, total=False):
+    reason: str
+
+
+class UnpauseScheduleRequest(TypedDict, total=False):
+    reason: str
+
+
+class TriggerScheduleRequest(TypedDict, total=False):
+    reason: str
+
+
+class TriggerScheduleResponse(TypedDict):
+    schedule: Schedule
+    task: Task
+
+
+class BackfillScheduleRequest(TypedDict):
+    start_at: str
+    end_at: str
+
+
+class BackfillScheduleResponse(TypedDict):
+    schedule: Schedule
+    tasks: list[Task]
+
+
+class PollTaskResponse(TypedDict, total=False):
+    task: Task
+    directive: AgentPollDirective
+
+
+class AgentPollDirective(TypedDict, total=False):
+    type: Literal["upgrade", "shutdown", "log_level", "poll_now", "attest"]
+    image: str
+    expectedVersion: int
+    force: bool
+    logLevel: str
+    subject: Literal["agent", "agent_helper"]
+
+
+class AgentUpgradeRequest(TypedDict, total=False):
+    image: str
+    expectedVersion: int
+
+
+class ShellExecPayload(TypedDict, total=False):
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    working_dir: str
+    timeout_seconds: int
+
+
+class ContainerExecPayload(TypedDict, total=False):
+    """Payload for ``container.exec`` tasks.
+
+    The Go agent runs a per-task container from ``image`` via its docker
+    CLI (proxied through the worker stack's docker socket proxy). Useful
+    for polyglot runtimes (Node, Bun, Python, Go, anything in an image)
+    without baking those runtimes into the agent image itself.
+
+    ``image`` is required. ``command``, when set, overrides the image's
+    ENTRYPOINT; ``args`` becomes the container's CMD. ``pull_policy``
+    mirrors ``docker run --pull`` (``always`` | ``missing`` | ``never``);
+    omit for the default ``missing``. Env keys flow through the agent's
+    allowlist — ``DOCKER_*``, ``POSTGRIP_*``, and host loader/interpreter
+    prefixes are rejected.
+
+    The agent runs the container with ``--rm --network=none`` and never
+    mounts host paths; share state via stdin/args/env.
+    """
+
+    image: str
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    working_dir: str
+    pull_policy: str
+    timeout_seconds: int
+
+
+class WorkflowStartOptions(TypedDict, total=False):
+    namespace: str
+    workflow_id: str
+    workflow_id_reuse_policy: WorkflowIdReusePolicy
+    task_queue: str
+    args: list[Any]
+    lease_timeout_seconds: int
+    workflow_run_timeout_ms: int
+    retry: RetryPolicy
+    memo: dict[str, Any]
+    search_attributes: dict[str, Any]
+
+
+class ContinueAsNewOptions(TypedDict, total=False):
+    workflow_id: str
+    workflow_type: str
+    task_queue: str
+    args: list[Any]
+    lease_timeout_seconds: int
+    workflow_run_timeout_ms: int
+    retry: RetryPolicy
+
+
+class ChildWorkflowOptions(TypedDict, total=False):
+    workflow_id: str
+    task_queue: str
+    args: list[Any]
+    lease_timeout_seconds: int
+    workflow_run_timeout_ms: int
+    cancellation_type: CancellationType
+    cancellation_scope: CancellationScopeType
+    retry: RetryPolicy
+
+
+class WorkflowExecutionDescription(TypedDict, total=False):
+    workflowId: str
+    runId: str
+    taskId: str
+    namespace: str
+    taskQueue: str
+    workflowType: str
+    status: str
+    attempt: int
+    leaseTimeoutSeconds: int
+    workflowRunTimeoutMs: int
+    retry: RetryPolicy
+    memo: dict[str, Any]
+    searchAttributes: dict[str, Any]
+    result: Any
+    error: str
+    startedAt: str
+    updatedAt: str
+
+
+class WorkflowExecution(TypedDict, total=False):
+    id: str
+    run_id: str
+    namespace: str
+    type: str
+    queue: str
+    task_id: str
+    state: Literal["running", "succeeded", "failed", "continued_as_new"]
+    attempt: int
+    run_timeout_ms: int
+    retry: RetryPolicy
+    memo: dict[str, Any]
+    search_attributes: dict[str, Any]
+    result: TaskResult
+    error: str
+    created_at: str
+    updated_at: str
+
+
+class WorkflowHistoryEvent(TypedDict, total=False):
+    id: str
+    workflow_id: str
+    task_id: str
+    type: str
+    attributes: dict[str, Any]
+    created_at: str
+
+
+class WorkflowCountResponse(TypedDict):
+    count: int
+
+
+class Namespace(TypedDict):
+    name: str
+    created_at: str
+    updated_at: str
+
+
+class CompactResponse(TypedDict):
+    removed_tasks: int
+    removed_workflows: int
+
+
+class WorkflowSignalDefinition(TypedDict):
+    name: str
+    type: Literal["signal"]
+    args: list[Any]
+
+
+class WorkflowQueryDefinition(TypedDict):
+    name: str
+    type: Literal["query"]
+    args: list[Any]
+    result: Any
+
+
+class WorkflowUpdateDefinition(TypedDict):
+    name: str
+    type: Literal["update"]
+    args: list[Any]
+    result: Any
+
+
+class SignalWorkflowRequest(TypedDict, total=False):
+    name: str
+    args: list[Any]
+
+
+class SignalWithStartWorkflowRequest(TypedDict, total=False):
+    namespace: str
+    queue: str
+    workflowType: str
+    workflowId: str
+    workflowIdReusePolicy: WorkflowIdReusePolicy
+    lease_timeout_seconds: int
+    runTimeoutMs: int
+    retry: RetryPolicy
+    memo: dict[str, Any]
+    searchAttributes: dict[str, Any]
+    args: list[Any]
+    signal: SignalWorkflowRequest
+
+
+class SignalWithStartWorkflowResponse(TypedDict):
+    workflow: WorkflowExecution
+    task: Task
+    signal: WorkflowHistoryEvent
+
+
+class CancelWorkflowRequest(TypedDict, total=False):
+    reason: str
+
+
+class TerminateWorkflowRequest(TypedDict, total=False):
+    reason: str
+
+
+class WorkflowQueryPayload(TypedDict):
+    workflowId: str
+    workflowType: str
+    queryName: str
+    args: list[Any]
+    workflowRunId: NotRequired[str]
+
+
+class WorkflowUpdatePayload(TypedDict):
+    workflowId: str
+    workflowType: str
+    updateName: str
+    args: list[Any]
+    workflowRunId: NotRequired[str]
+
+
+class WorkflowPayload(TypedDict, total=False):
+    namespace: str
+    workflowType: str
+    workflowId: str
+    runId: str
+    workflowIdReusePolicy: WorkflowIdReusePolicy
+    parentWorkflowId: str
+    parentWorkflowRunId: str
+    parentWorkflowTaskId: str
+    parentCancellationType: CancellationType
+    continuedFromWorkflowId: str
+    runTimeoutMs: int
+    retry: RetryPolicy
+    memo: dict[str, Any]
+    searchAttributes: dict[str, Any]
+    args: list[Any]
+
+
+class ActivityInvocationPayload(TypedDict, total=False):
+    activityType: str
+    workflowId: str
+    workflowRunId: str
+    workflowTaskId: str
+    attempt: int
+    cancellationType: CancellationType
+    retry: RetryPolicy
+    args: list[Any]
+
+
+class TimerPayload(TypedDict):
+    timerId: str
+    durationMs: int
+    fireAt: str
+    workflowId: NotRequired[str]
+    workflowRunId: NotRequired[str]
+    workflowTaskId: NotRequired[str]
+
+
+class ActivityOptions(TypedDict, total=False):
+    start_to_close_timeout_ms: int
+    schedule_to_close_timeout_ms: int
+    cancellation_type: CancellationType
+    cancellation_scope: CancellationScopeType
+    retry: RetryPolicy
+
+
+__all__ = [name for name in globals() if not name.startswith("_")]
