@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import unittest
 from datetime import timedelta
@@ -84,6 +85,16 @@ class FakeConnection(Connection):
 
 
 class PythonSdkTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._previous_managed_runtime = os.environ.get("POSTGRIP_AGENT_MANAGED_RUNTIME")
+        os.environ["POSTGRIP_AGENT_MANAGED_RUNTIME"] = "true"
+
+    def tearDown(self) -> None:
+        if self._previous_managed_runtime is None:
+            os.environ.pop("POSTGRIP_AGENT_MANAGED_RUNTIME", None)
+        else:
+            os.environ["POSTGRIP_AGENT_MANAGED_RUNTIME"] = self._previous_managed_runtime
+
     def test_deprecated_worker_import_is_agent_alias(self):
         self.assertIs(Worker, Agent)
 
@@ -102,12 +113,12 @@ class PythonSdkTests(unittest.TestCase):
         self.assertEqual(connection._agent_queue, "priority")
 
     def test_ensure_agent_session_uses_agent_id(self):
-        connection = Connection("http://agent.test", agent_enrollment_key="enroll-key")
+        connection = Connection("http://agent.test", agent_refresh_token="refresh-token")
         requests: list[tuple[str, str, dict | None, bool]] = []
 
         def fake_request(method: str, path: str, body: dict | None = None, *, agent_auth: bool = False) -> dict:
             requests.append((method, path, body, agent_auth))
-            if path == "/api/v1/agent/enroll":
+            if path == "/api/v1/agent/session/refresh":
                 return {
                     "agentId": "agent-1",
                     "accessToken": "access-token",
@@ -120,16 +131,16 @@ class PythonSdkTests(unittest.TestCase):
 
         self.assertTrue(connection.ensure_agent_session(agent_id="agent-1"))
         self.assertEqual(connection._agent_id, "agent-1")
-        self.assertEqual(requests[0][1], "/api/v1/agent/enroll")
-        self.assertEqual(requests[0][2]["agentId"], "agent-1")
+        self.assertEqual(requests[0][1], "/api/v1/agent/session/refresh")
+        self.assertEqual(requests[0][2]["refreshToken"], "refresh-token")
 
     def test_worker_id_keyword_maps_to_canonical_agent_payload(self):
-        connection = Connection("http://agent.test", agent_enrollment_key="enroll-key")
+        connection = Connection("http://agent.test", agent_refresh_token="refresh-token")
         requests: list[tuple[str, str, dict | None, bool]] = []
 
         def fake_request(method: str, path: str, body: dict | None = None, *, agent_auth: bool = False) -> dict:
             requests.append((method, path, body, agent_auth))
-            if path == "/api/v1/agent/enroll":
+            if path == "/api/v1/agent/session/refresh":
                 return {
                     "agentId": "agent-compat",
                     "accessToken": "access-token",
@@ -144,25 +155,23 @@ class PythonSdkTests(unittest.TestCase):
 
         self.assertTrue(connection.ensure_agent_session(worker_id="agent-compat"))
         self.assertEqual(connection._agent_id, "agent-compat")
-        self.assertEqual(requests[0][2]["agentId"], "agent-compat")
+        self.assertEqual(requests[0][2]["refreshToken"], "refresh-token")
         self.assertNotIn("workerId", requests[0][2])
         self.assertIsNone(connection.poll_task(namespace="default", queue="default", worker_id="agent-compat"))
         poll_path = next(path for _method, path, _body, _agent_auth in requests if path.startswith("/api/v1/agent/poll?"))
         self.assertIn("agent_id=agent-compat", poll_path)
 
     def test_task_helpers_accept_agent_id_keyword(self):
-        connection = Connection("http://agent.test", agent_enrollment_key="enroll-key")
+        connection = Connection(
+            "http://agent.test",
+            agent_access_token="access-token",
+            agent_refresh_token="refresh-token",
+            agent_access_expires_at="2999-01-01T00:00:00Z",
+        )
         requests: list[tuple[str, str, dict | None, bool]] = []
 
         def fake_request(method: str, path: str, body: dict | None = None, *, agent_auth: bool = False) -> dict:
             requests.append((method, path, body, agent_auth))
-            if path == "/api/v1/agent/enroll":
-                return {
-                    "agentId": "agent-1",
-                    "accessToken": "access-token",
-                    "refreshToken": "refresh-token",
-                    "accessExpiresAt": "2999-01-01T00:00:00Z",
-                }
             if path.startswith("/api/v1/agent/tasks/task-1/"):
                 return {"id": "task-1"}
             if path.startswith("/api/v1/agent/poll?"):

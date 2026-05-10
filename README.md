@@ -36,7 +36,6 @@ The package exposes a Temporal-style Python API:
 
 ```python
 import asyncio
-import os
 from datetime import timedelta
 
 from postgrip_agent import Client, Agent, activity, workflow
@@ -59,9 +58,10 @@ class SayHelloWorkflow:
 
 
 async def main() -> None:
+    # This process is launched by a PostGrip host agent from a workflow.runtime
+    # task. The host injects POSTGRIP_AGENT_ID and delegated runtime credentials.
     client = await Client.connect(
         "http://127.0.0.1:4100",
-        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
     )
     agent = Agent(
         client,
@@ -81,6 +81,32 @@ async def main() -> None:
 
 
 asyncio.run(main())
+```
+
+Submit that runtime to an existing agent pool from your client process:
+
+```python
+import asyncio
+import os
+
+from postgrip_agent import Client
+
+
+async def submit_runtime() -> None:
+    client = await Client.connect(
+        "https://agentorchestrator.postgrip.app",
+        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
+    )
+    await client.task.workflow_runtime(
+        queue="default",
+        command="python",
+        args=["-m", "myapp.workflow_runtime"],
+        runtime_queue="default",
+        env={"POSTGRIP_EXAMPLE_RUN_LABEL": "PostGrip"},
+    )
+
+
+asyncio.run(submit_runtime())
 ```
 
 This SDK targets the PostGrip Agent runtime API, not a Temporal server. It follows the familiar Temporal Python shape for client, agent, workflow, and activity code while using PostGrip Agent task queues and workflow history underneath.

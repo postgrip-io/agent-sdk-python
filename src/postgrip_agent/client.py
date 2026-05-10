@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import socket
 import threading
 import time
 import uuid
@@ -30,7 +29,6 @@ class Connection:
         *,
         timeout: float = 30,
         headers: dict[str, str] | None = None,
-        agent_enrollment_key: str | None = None,
         agent_id: str | None = None,
         worker_id: str | None = None,
         agent_name: str | None = None,
@@ -49,8 +47,6 @@ class Connection:
         self.address = address.rstrip("/")
         self.timeout = timeout
         self.headers = dict(headers or {})
-        managed_runtime = os.environ.get("POSTGRIP_AGENT_MANAGED_RUNTIME") == "true"
-        self._agent_enrollment_key = agent_enrollment_key or (None if managed_runtime else os.environ.get("POSTGRIP_AGENT_ENROLLMENT_KEY"))
         self._agent_id = agent_id or worker_id or os.environ.get("POSTGRIP_AGENT_ID")
         self._agent_name = agent_name
         self._agent_host = agent_host
@@ -61,9 +57,8 @@ class Connection:
         self._agent_access_expires_at = _parse_timestamp(agent_access_expires_at or os.environ.get("POSTGRIP_AGENT_ACCESS_EXPIRES_AT"))
         self._agent_lock = threading.RLock()
         self._agent_refresh_lock = threading.Lock()
-        # Ed25519 keypair the agent uses to sign requests to agent-authed
-        # endpoints. Generated lazily on first enroll and reused for the
-        # lifetime of the Connection.
+        # Ed25519 keypair injected by the host agent for managed workflow
+        # runtimes.
         signing_private_key = agent_signing_private_key or os.environ.get("POSTGRIP_AGENT_SIGNING_PRIVATE_KEY")
         self._agent_sign_priv: Ed25519PrivateKey | None = _signing.decode_private_key(signing_private_key) if signing_private_key else None
 
@@ -76,7 +71,6 @@ class Connection:
     def configure_agent_auth(
         self,
         *,
-        enrollment_key: str | None = None,
         agent_id: str | None = None,
         worker_id: str | None = None,
         agent_name: str | None = None,
@@ -89,8 +83,6 @@ class Connection:
         signing_private_key: str | None = None,
     ) -> None:
         with self._agent_lock:
-            if enrollment_key:
-                self._agent_enrollment_key = enrollment_key
             resolved_agent_id = agent_id or worker_id
             if resolved_agent_id:
                 self._agent_id = resolved_agent_id
@@ -176,33 +168,16 @@ class Connection:
                 if self._agent_access_token and self._agent_access_expires_at > time.time() + 30:
                     return True
                 refresh_token = self._agent_refresh_token
-                enrollment_key = self._agent_enrollment_key
 
             if refresh_token:
-                try:
-                    self._apply_agent_session(self._request("POST", "/api/v1/agent/session/refresh", {"refreshToken": refresh_token}))
-                    return True
-                except Exception:
-                    if not enrollment_key:
-                        raise
+                self._apply_agent_session(self._request("POST", "/api/v1/agent/session/refresh", {"refreshToken": refresh_token}))
+                return True
 
-            if not enrollment_key:
-                return False
+            raise RuntimeError("postgrip-agent: managed runtime credentials are required; submit workflow.runtime work to a host agent instead of enrolling SDK agents")
 
-            with self._agent_lock:
-                if self._agent_sign_priv is None:
-                    self._agent_sign_priv = Ed25519PrivateKey.generate()
-                request = {
-                    "enrollmentKey": enrollment_key,
-                    "agentId": self._agent_id,
-                    "name": self._agent_name or self._agent_id,
-                    "host": self._agent_host or socket.gethostname(),
-                    "namespaces": [self._agent_namespace or "default"],
-                    "queues": [self._agent_queue or "default"],
-                    "signaturePublicKey": _signing.encode_public_key(self._agent_sign_priv.public_key()),
-                }
-            self._apply_agent_session(self._request("POST", "/api/v1/agent/enroll", request))
-            return True
+    def _has_agent_runtime_credentials(self) -> bool:
+        with self._agent_lock:
+            return bool(self._agent_access_token or self._agent_refresh_token)
 
     def _apply_agent_session(self, session: dict[str, Any]) -> None:
         with self._agent_lock:
@@ -227,6 +202,8 @@ class Connection:
         return self.request("POST", "/api/v1/admin/compact", {"retention_seconds": retention_seconds})
 
     def enqueue_task(self, request: dict[str, Any]) -> dict[str, Any]:
+        if _runtime_only_task_type(str(request.get("type") or "")) and not self._has_agent_runtime_credentials():
+            raise RuntimeError("postgrip-agent: workflow tasks can only be enqueued from a managed runtime; submit workflow.runtime to an agent pool")
         return self.request("POST", "/api/v1/tasks", request)
 
     def list_tasks(self, **options: Any) -> list[dict[str, Any]]:
@@ -309,6 +286,8 @@ class Connection:
         return self.request("POST", f"/api/v1/workflows/{quote(workflow_id_or_run_id, safe='')}/signal", {"name": name, "args": args or []})
 
     def signal_with_start_workflow(self, workflow_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        if not self._has_agent_runtime_credentials():
+            raise RuntimeError("postgrip-agent: signal-with-start can only run from a managed runtime; submit workflow.runtime to an agent pool")
         return self.request("POST", f"/api/v1/workflows/{quote(workflow_id, safe='')}/signal-with-start", request)
 
     def cancel_workflow(self, workflow_id_or_run_id: str, reason: str | None = None) -> dict[str, Any]:
@@ -638,6 +617,45 @@ class TaskClient:
             payload=payload,
         )
 
+    def workflow_runtime(
+        self,
+        *,
+        command: str,
+        args: list[str] | None = None,
+        env: dict[str, str] | None = None,
+        working_dir: str | None = None,
+        timeout_seconds: int | None = None,
+        queue: str = "default",
+        namespace: str = "default",
+        runtime_queue: str | None = None,
+        runtime_namespace: str | None = None,
+        runtime_id: str | None = None,
+        lease_timeout_seconds: int = 0,
+    ) -> dict[str, Any]:
+        """Enqueue a managed SDK runtime on an existing host-agent pool."""
+        payload: dict[str, Any] = {"command": command}
+        if args is not None:
+            payload["args"] = args
+        if env is not None:
+            payload["env"] = env
+        if working_dir is not None:
+            payload["working_dir"] = working_dir
+        if timeout_seconds is not None:
+            payload["timeout_seconds"] = timeout_seconds
+        if runtime_queue is not None:
+            payload["queue"] = runtime_queue
+        if runtime_namespace is not None:
+            payload["namespace"] = runtime_namespace
+        if runtime_id is not None:
+            payload["runtime_id"] = runtime_id
+        return self.enqueue(
+            namespace=namespace,
+            queue=queue,
+            type="workflow.runtime",
+            payload=payload,
+            lease_timeout_seconds=lease_timeout_seconds,
+        )
+
     def noop(self, *, queue: str = "default", namespace: str = "default") -> dict[str, Any]:
         return self.enqueue(namespace=namespace, queue=queue, type="noop")
 
@@ -743,6 +761,17 @@ async def _watch_task_events(connection: Connection, task_id: str, *, poll_inter
 
 def _agent_task_path(task_id: str, action: str, agent_id: str) -> str:
     return f"/api/v1/agent/tasks/{quote(task_id, safe='')}/{action}?{urlencode({'agent_id': agent_id})}"
+
+
+def _runtime_only_task_type(task_type: str) -> bool:
+    task_type = task_type.strip()
+    return (
+        task_type == "timer"
+        or task_type.startswith("workflow:")
+        or task_type.startswith("activity:")
+        or task_type.startswith("query:")
+        or task_type.startswith("update:")
+    )
 
 
 def _query_options(options: dict[str, Any]) -> dict[str, Any]:
