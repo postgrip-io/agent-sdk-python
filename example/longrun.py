@@ -58,6 +58,14 @@ def env_any(names: list[str], fallback: str) -> str:
     return fallback
 
 
+def env_optional(names: list[str]) -> str | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return None
+
+
 def slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "run"
 
@@ -69,7 +77,7 @@ WORKFLOW_TIMEOUT_SECONDS = env_int_any(["POSTGRIP_EXAMPLE_WORKFLOW_TIMEOUT_SECON
 RUN_LABEL = env_any(["POSTGRIP_EXAMPLE_RUN_LABEL", "SDK_EXAMPLE_RUN_LABEL"], "PostGrip")
 
 
-@activity.defn(name="process_step")
+@activity.defn(name="processStep")
 async def process_step(name: str, step: int) -> str:
     return f"processed step {step} for {name}"
 
@@ -79,7 +87,7 @@ class LongRunningWorkflow:
     @workflow.run
     async def run(self, name: str, steps: int) -> str:
         for i in range(1, steps + 1):
-            await workflow.execute_activity(process_step, name, i)
+            await workflow.execute_activity("processStep", name, i)
             await workflow.sleep(timedelta(seconds=STEP_SLEEP_SECONDS))
         return f"completed {steps} steps for {name}"
 
@@ -160,7 +168,10 @@ async def submit_managed_runtime() -> None:
         headers["x-postgrip-agent-tenant-id"] = tenant_id
     client = await Client.connect(address, headers=headers)
     queue = env_any(["POSTGRIP_EXAMPLE_RUNTIME_QUEUE", "SDK_EXAMPLE_RUNTIME_QUEUE"], "default")
-    runtime_queue = env_any(["POSTGRIP_EXAMPLE_RUNTIME_CHILD_QUEUE", "SDK_EXAMPLE_RUNTIME_CHILD_QUEUE"], queue)
+    runtime_queue = env_any(
+        ["POSTGRIP_EXAMPLE_RUNTIME_CHILD_QUEUE", "SDK_EXAMPLE_RUNTIME_CHILD_QUEUE"],
+        f"sdk-runtime-{slug(RUN_LABEL)}-{uuid.uuid4().hex[:8]}",
+    )
     args_json = os.environ.get("SDK_EXAMPLE_RUNTIME_ARGS_JSON") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_ARGS_JSON")
     if not args_json:
         raise RuntimeError("SDK_EXAMPLE_RUNTIME_ARGS_JSON is required to submit this runtime to an agent pool")
@@ -170,9 +181,11 @@ async def submit_managed_runtime() -> None:
     task = client.task.workflow_runtime(
         queue=queue,
         runtime_queue=runtime_queue,
+        image=env_optional(["POSTGRIP_EXAMPLE_RUNTIME_IMAGE", "SDK_EXAMPLE_RUNTIME_IMAGE"]),
         command=env_any(["POSTGRIP_EXAMPLE_RUNTIME_COMMAND", "SDK_EXAMPLE_RUNTIME_COMMAND"], "sh"),
         args=args,
-        working_dir=env_any(["POSTGRIP_EXAMPLE_RUNTIME_WORKING_DIR", "SDK_EXAMPLE_RUNTIME_WORKING_DIR"], ""),
+        working_dir=env_optional(["POSTGRIP_EXAMPLE_RUNTIME_WORKING_DIR", "SDK_EXAMPLE_RUNTIME_WORKING_DIR"]),
+        pull_policy=env_optional(["POSTGRIP_EXAMPLE_RUNTIME_PULL_POLICY", "SDK_EXAMPLE_RUNTIME_PULL_POLICY"]),
         timeout_seconds=env_int_any(["POSTGRIP_EXAMPLE_RUNTIME_TIMEOUT_SECONDS", "SDK_EXAMPLE_RUNTIME_TIMEOUT_SECONDS"], 900),
         lease_timeout_seconds=env_int_any(["POSTGRIP_EXAMPLE_RUNTIME_LEASE_TIMEOUT_SECONDS", "SDK_EXAMPLE_RUNTIME_LEASE_TIMEOUT_SECONDS"], 30),
         env={

@@ -76,14 +76,21 @@ class Agent:
                 if len(self._in_flight) >= self.max_concurrent_tasks:
                     await self._wait_for_task_slot()
                     continue
-                task = await asyncio.to_thread(
-                    self.connection.poll_task,
-                    namespace=self.namespace,
-                    queue=self.task_queue,
-                    agent_id=self.identity,
-                    wait_seconds=max(1, int(self.poll_interval)),
-                    task_types=WORKFLOW_RUNTIME_TASK_TYPES,
-                )
+                try:
+                    task = await asyncio.to_thread(
+                        self.connection.poll_task,
+                        namespace=self.namespace,
+                        queue=self.task_queue,
+                        agent_id=self.identity,
+                        wait_seconds=max(1, int(self.poll_interval)),
+                        task_types=WORKFLOW_RUNTIME_TASK_TYPES,
+                    )
+                except Exception as exc:
+                    if self._stopping:
+                        break
+                    print(f"postgrip-agent: poll failed: {exc}", flush=True)
+                    await asyncio.sleep(self.poll_interval)
+                    continue
                 if not task:
                     await asyncio.sleep(self.poll_interval)
                     continue

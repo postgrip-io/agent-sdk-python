@@ -621,10 +621,12 @@ class TaskClient:
     def workflow_runtime(
         self,
         *,
-        command: str,
+        command: str | None = None,
+        image: str | None = None,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         working_dir: str | None = None,
+        pull_policy: str | None = None,
         timeout_seconds: int | None = None,
         queue: str = "default",
         namespace: str = "default",
@@ -634,17 +636,22 @@ class TaskClient:
         lease_timeout_seconds: int = 0,
     ) -> dict[str, Any]:
         """Enqueue a managed SDK runtime on an existing host-agent pool."""
-        payload: dict[str, Any] = {"command": command}
+        payload: dict[str, Any] = {}
+        if image is not None:
+            payload["image"] = image
+        if command is not None:
+            payload["command"] = command
         if args is not None:
             payload["args"] = args
         if env is not None:
             payload["env"] = env
         if working_dir is not None:
             payload["working_dir"] = working_dir
+        if pull_policy is not None:
+            payload["pull_policy"] = pull_policy
         if timeout_seconds is not None:
             payload["timeout_seconds"] = timeout_seconds
-        if runtime_queue is not None:
-            payload["queue"] = runtime_queue
+        payload["queue"] = runtime_queue or f"postgrip-runtime-{uuid.uuid4().hex[:16]}"
         if runtime_namespace is not None:
             payload["namespace"] = runtime_namespace
         if runtime_id is not None:
