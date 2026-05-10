@@ -11,9 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from . import _signing
 from .errors import TaskFailedError, TimeoutFailure
 from .workflow import workflow_name
 
@@ -50,6 +53,10 @@ class Connection:
         self._agent_refresh_token: str | None = None
         self._agent_access_expires_at = 0.0
         self._agent_lock = threading.RLock()
+        # Ed25519 keypair the agent uses to sign requests to agent-authed
+        # endpoints. Generated lazily on first enroll and reused for the
+        # lifetime of the Connection.
+        self._agent_sign_priv: Ed25519PrivateKey | None = None
 
     @classmethod
     async def connect(cls, address: str = "http://127.0.0.1:4100", **options: Any) -> "Connection":
@@ -87,13 +94,26 @@ class Connection:
         return self._request(method, path, body, agent_auth=agent_auth)
 
     def _request(self, method: str, path: str, body: Any = None, *, agent_auth: bool = False) -> Any:
-        data = None if body is None else json.dumps(body).encode()
+        data = b"" if body is None else json.dumps(body).encode()
         headers = dict(self.headers)
+        # Some CDN front-ends block urllib's default UA. Always send a stable
+        # SDK identifier so behavior is consistent across local and proxied
+        # deployments.
+        headers.setdefault("User-Agent", "postgrip-agent-python")
         if agent_auth and self._agent_access_token:
             headers["Authorization"] = f"Bearer {self._agent_access_token}"
         if body is not None:
             headers["Content-Type"] = "application/json"
-        request = Request(self.address + path, data=data, method=method, headers=headers)
+        if agent_auth and self._agent_sign_priv is not None:
+            split = urlsplit(self.address + path)
+            ts = int(time.time())
+            headers[_signing.HEADER_AGENT_SIGNATURE_TIMESTAMP] = str(ts)
+            headers[_signing.HEADER_AGENT_SIGNATURE_KEY_ID] = _signing.public_key_id(self._agent_sign_priv.public_key())
+            headers[_signing.HEADER_AGENT_SIGNATURE] = _signing.sign_request(
+                self._agent_sign_priv, method, split.path, split.query, ts, data,
+            )
+        # urllib treats `data=b""` as a GET-with-body, which is wrong; pass None for empty bodies.
+        request = Request(self.address + path, data=(data or None) if body is not None else None, method=method, headers=headers)
         try:
             with urlopen(request, timeout=self.timeout) as response:
                 raw = response.read()
@@ -127,6 +147,8 @@ class Connection:
             return False
 
         with self._agent_lock:
+            if self._agent_sign_priv is None:
+                self._agent_sign_priv = Ed25519PrivateKey.generate()
             request = {
                 "enrollmentKey": enrollment_key,
                 "agentId": self._agent_id,
@@ -134,6 +156,7 @@ class Connection:
                 "host": self._agent_host or socket.gethostname(),
                 "namespaces": [self._agent_namespace or "default"],
                 "queues": [self._agent_queue or "default"],
+                "signaturePublicKey": _signing.encode_public_key(self._agent_sign_priv.public_key()),
             }
         self._apply_agent_session(self._request("POST", "/api/v1/agent/enroll", request))
         return True
