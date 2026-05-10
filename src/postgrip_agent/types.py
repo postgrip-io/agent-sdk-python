@@ -256,6 +256,13 @@ class ContainerExecPayload(TypedDict, total=False):
     timeout_seconds: int
 
 
+class WorkflowUIMetadata(TypedDict, total=False):
+    displayName: str
+    description: str
+    details: dict[str, str | int | float | bool]
+    tags: list[str]
+
+
 class WorkflowStartOptions(TypedDict, total=False):
     namespace: str
     workflow_id: str
@@ -267,6 +274,7 @@ class WorkflowStartOptions(TypedDict, total=False):
     retry: RetryPolicy
     memo: dict[str, Any]
     search_attributes: dict[str, Any]
+    ui: WorkflowUIMetadata
 
 
 class ContinueAsNewOptions(TypedDict, total=False):

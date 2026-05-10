@@ -57,6 +57,7 @@ from .types import (
     WorkflowRuntimePayload,
     WorkflowSignalDefinition,
     WorkflowStartOptions,
+    WorkflowUIMetadata,
     WorkflowUpdateDefinition,
     WorkflowUpdatePayload,
 )
@@ -134,6 +135,7 @@ __all__ = [
     "WorkflowRuntimePayload",
     "WorkflowSignalDefinition",
     "WorkflowStartOptions",
+    "WorkflowUIMetadata",
     "WorkflowUpdateHandle",
     "WorkflowUpdateDefinition",
     "WorkflowUpdatePayload",

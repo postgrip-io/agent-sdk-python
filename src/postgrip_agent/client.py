@@ -20,6 +20,7 @@ from .errors import TaskFailedError, TimeoutFailure
 from .workflow import workflow_name
 
 _MISSING = object()
+_POSTGRIP_UI_MEMO_KEY = "postgrip.ui"
 
 
 class Connection:
@@ -368,7 +369,7 @@ class WorkflowClient:
                 "workflowIdReusePolicy": options.get("workflow_id_reuse_policy"),
                 "runTimeoutMs": _duration_ms(options.get("workflow_run_timeout") or options.get("workflow_run_timeout_ms")),
                 "retry": options.get("retry"),
-                "memo": options.get("memo"),
+                "memo": _memo_with_workflow_ui(options.get("memo"), options.get("ui")),
                 "searchAttributes": options.get("search_attributes"),
                 "args": args or [],
             },
@@ -395,7 +396,7 @@ class WorkflowClient:
             "lease_timeout_seconds": options.get("lease_timeout_seconds", 0),
             "runTimeoutMs": _duration_ms(options.get("workflow_run_timeout") or options.get("workflow_run_timeout_ms")),
             "retry": options.get("retry"),
-            "memo": options.get("memo"),
+            "memo": _memo_with_workflow_ui(options.get("memo"), options.get("ui")),
             "searchAttributes": options.get("search_attributes"),
             "args": args or [],
             "signal": {"name": signal_name, "args": signal_args or []},
@@ -674,7 +675,7 @@ class ScheduleClient:
     def create(self, request: dict[str, Any]) -> dict[str, Any]:
         return self.connection.create_schedule(request)
 
-    def create_workflow_schedule(self, *, workflow: Callable[..., Any] | str, schedule_id: str | None = None, namespace: str = "default", task_queue: str = "default", args: list[Any] | None = None, interval_seconds: int | None = None, cron: str | None = None, calendar: dict[str, Any] | None = None, timezone: str | None = None, jitter_seconds: int | None = None, catch_up_window_seconds: int | None = None, missed_run_policy: str | None = None, start_at: datetime | str | None = None, workflow_id: str | None = None, workflow_id_reuse_policy: str | None = None, overlap_policy: str | None = None, workflow_run_timeout_ms: int | None = None, retry: dict[str, Any] | None = None, memo: dict[str, Any] | None = None, search_attributes: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create_workflow_schedule(self, *, workflow: Callable[..., Any] | str, schedule_id: str | None = None, namespace: str = "default", task_queue: str = "default", args: list[Any] | None = None, interval_seconds: int | None = None, cron: str | None = None, calendar: dict[str, Any] | None = None, timezone: str | None = None, jitter_seconds: int | None = None, catch_up_window_seconds: int | None = None, missed_run_policy: str | None = None, start_at: datetime | str | None = None, workflow_id: str | None = None, workflow_id_reuse_policy: str | None = None, overlap_policy: str | None = None, workflow_run_timeout_ms: int | None = None, retry: dict[str, Any] | None = None, memo: dict[str, Any] | None = None, search_attributes: dict[str, Any] | None = None, ui: dict[str, Any] | None = None) -> dict[str, Any]:
         workflow_type = workflow_name(workflow)
         if isinstance(start_at, datetime):
             start_at = start_at.isoformat()
@@ -700,7 +701,7 @@ class ScheduleClient:
                 "workflowIdReusePolicy": workflow_id_reuse_policy,
                 "runTimeoutMs": workflow_run_timeout_ms,
                 "retry": retry,
-                "memo": memo,
+                "memo": _memo_with_workflow_ui(memo, ui),
                 "searchAttributes": search_attributes,
                 "args": args or [],
             },
@@ -798,6 +799,44 @@ def _workflow_query_options(options: dict[str, Any]) -> dict[str, Any]:
         "search_attributes": "search_attributes",
     }
     return {mapping.get(key, key): value for key, value in options.items() if value is not None}
+
+
+def _memo_with_workflow_ui(memo: dict[str, Any] | None, ui: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not ui:
+        return memo
+    ui_memo = _workflow_ui_memo(ui)
+    if not ui_memo:
+        return memo
+    return {**(memo or {}), _POSTGRIP_UI_MEMO_KEY: ui_memo}
+
+
+def _workflow_ui_memo(ui: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    display_name = _clean_string(ui.get("displayName") or ui.get("display_name"))
+    if display_name:
+        out["displayName"] = display_name
+    description = _clean_string(ui.get("description"))
+    if description:
+        out["description"] = description
+    details = ui.get("details")
+    if isinstance(details, dict):
+        clean_details = {str(key).strip(): value for key, value in details.items() if str(key).strip()}
+        if clean_details:
+            out["details"] = clean_details
+    tags = ui.get("tags")
+    if isinstance(tags, list):
+        clean_tags = [_clean_string(tag) for tag in tags]
+        clean_tags = [tag for tag in clean_tags if tag]
+        if clean_tags:
+            out["tags"] = clean_tags
+    return out
+
+
+def _clean_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return None
 
 
 def _normalize_temporal_start_options(options: dict[str, Any]) -> dict[str, Any]:

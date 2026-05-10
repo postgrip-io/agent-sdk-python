@@ -541,6 +541,13 @@ class PythonSdkTests(unittest.TestCase):
             id="workflow-id",
             task_queue="queue-a",
             namespace="tenant-a",
+            memo={"owner": "docs"},
+            ui={
+                "displayName": "Example workflow",
+                "description": "Visible in the console",
+                "details": {"customer": "cust-1", "attempt": 1},
+                "tags": ["sdk", "demo"],
+            },
             search_attributes={"customer": "cust-1"},
         ))
 
@@ -548,6 +555,15 @@ class PythonSdkTests(unittest.TestCase):
         self.assertEqual(handle.run_id, "run-1")
         self.assertEqual(connection.enqueued[0]["queue"], "queue-a")
         self.assertEqual(connection.enqueued[0]["payload"]["workflowType"], "ExampleWorkflow")
+        self.assertEqual(connection.enqueued[0]["payload"]["memo"], {
+            "owner": "docs",
+            "postgrip.ui": {
+                "displayName": "Example workflow",
+                "description": "Visible in the console",
+                "details": {"customer": "cust-1", "attempt": 1},
+                "tags": ["sdk", "demo"],
+            },
+        })
         self.assertEqual(connection.enqueued[0]["payload"]["searchAttributes"], {"customer": "cust-1"})
 
     def test_query_replay_invokes_registered_handler(self):
