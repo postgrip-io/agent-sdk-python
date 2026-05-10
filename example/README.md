@@ -17,6 +17,7 @@ pip install -e .
 
 export POSTGRIP_AGENT_LIVE_SERVER_URL=https://postgrip.app
 export POSTGRIP_AGENT_AUTH_TOKEN=...           # management-side bearer token
+export SDK_EXAMPLE_RUNTIME_IMAGE=python:3.13-slim # optional; runs via host agent helper
 export SDK_EXAMPLE_RUNTIME_ARGS_JSON='["-lc","python -m example.greeting"]'
 python -m example.greeting
 ```

@@ -208,6 +208,18 @@ class PythonSdkTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             connection.append_task_event("task-1", agent_id="agent-1")
 
+    def test_workflow_runtime_defaults_to_isolated_child_queue(self):
+        connection = FakeConnection()
+        client = Client(connection)
+
+        task = client.task.workflow_runtime(command="sh", args=["-lc", "echo runtime"], queue="default")
+
+        self.assertEqual(task["id"], "task-1")
+        self.assertEqual(connection.enqueued[0]["type"], "workflow.runtime")
+        runtime_queue = connection.enqueued[0]["payload"]["queue"]
+        self.assertTrue(runtime_queue.startswith("postgrip-runtime-"))
+        self.assertNotEqual(runtime_queue, "default")
+
     def test_workflow_activity_command_schedules_and_blocks(self):
         @activity.defn
         async def greet(name: str) -> str:

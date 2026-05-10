@@ -465,12 +465,14 @@ class ActivityInvocationPayload(TypedDict, total=False):
 
 class WorkflowRuntimePayload(TypedDict, total=False):
     runtime_id: str
+    image: str
     command: str
     args: list[str]
     env: dict[str, str]
     working_dir: str
     namespace: str
     queue: str
+    pull_policy: str
     timeout_seconds: int
 
 

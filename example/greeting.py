@@ -102,13 +102,15 @@ async def submit_managed_runtime() -> None:
     if not isinstance(args, list) or any(not isinstance(item, str) for item in args):
         raise RuntimeError("SDK_EXAMPLE_RUNTIME_ARGS_JSON must be a JSON array of strings")
     queue = os.environ.get("SDK_EXAMPLE_RUNTIME_QUEUE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_QUEUE") or "default"
-    runtime_queue = os.environ.get("SDK_EXAMPLE_RUNTIME_CHILD_QUEUE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_CHILD_QUEUE") or queue
+    runtime_queue = os.environ.get("SDK_EXAMPLE_RUNTIME_CHILD_QUEUE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_CHILD_QUEUE") or f"postgrip-greeting-{uuid.uuid4().hex[:8]}"
     task = client.task.workflow_runtime(
         queue=queue,
         runtime_queue=runtime_queue,
+        image=os.environ.get("SDK_EXAMPLE_RUNTIME_IMAGE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_IMAGE"),
         command=os.environ.get("SDK_EXAMPLE_RUNTIME_COMMAND") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_COMMAND") or "sh",
         args=args,
         working_dir=os.environ.get("SDK_EXAMPLE_RUNTIME_WORKING_DIR") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_WORKING_DIR"),
+        pull_policy=os.environ.get("SDK_EXAMPLE_RUNTIME_PULL_POLICY") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_PULL_POLICY"),
         timeout_seconds=300,
         lease_timeout_seconds=30,
         env={
