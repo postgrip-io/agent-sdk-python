@@ -73,6 +73,12 @@ async def main() -> None:
             os.environ.get("SDK_EXAMPLE_GREETING_NAME", "PostGrip"),
             id=workflow_id,
             task_queue=queue,
+            ui={
+                "displayName": "Python greeting example",
+                "description": "Started from the Python SDK greeting example.",
+                "details": {"sdk": "python"},
+                "tags": ["sdk-ui-demo", "python"],
+            },
             timeout=60,
         )
     )

@@ -127,6 +127,16 @@ async def main() -> None:
                 STEPS_PER_WORKFLOW,
                 id=workflow_id,
                 task_queue=queue,
+                ui={
+                    "displayName": f"{RUN_LABEL} long run #{i}",
+                    "description": f"Runs {STEPS_PER_WORKFLOW} steps with {STEP_SLEEP_SECONDS}s sleeps between steps.",
+                    "details": {
+                        "sdk": "python",
+                        "steps": STEPS_PER_WORKFLOW,
+                        "sleepSeconds": STEP_SLEEP_SECONDS,
+                    },
+                    "tags": ["sdk-ui-demo", "python"],
+                },
                 timeout=WORKFLOW_TIMEOUT_SECONDS,
             )
             print(f"[{i}/{WORKFLOW_RUNS}] {workflow_id} -> {result!r} ({int(time.monotonic() - run_start)}s)", flush=True)

@@ -75,6 +75,12 @@ async def main() -> None:
             "PostGrip",
             id="say-hello",
             task_queue="default",
+            ui={
+                "displayName": "Say hello to PostGrip",
+                "description": "Shown on the PostGrip Agents activity tab.",
+                "details": {"sdk": "python"},
+                "tags": ["demo"],
+            },
         )
     )
     print(result)
@@ -82,6 +88,8 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+`ui` is SDK-owned console metadata. It is persisted inside workflow memo as `postgrip.ui`, so the Agents activity tab can show a friendly label, description, details, and tags while `memo` remains available for your own data.
 
 Submit that runtime to an existing agent pool from your client process:
 
