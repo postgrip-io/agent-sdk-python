@@ -54,6 +54,7 @@ from .types import (
     WorkflowQueryDefinition,
     WorkflowQueryPayload,
     WorkflowRegistry,
+    WorkflowRuntimePayload,
     WorkflowSignalDefinition,
     WorkflowStartOptions,
     WorkflowUpdateDefinition,
@@ -61,6 +62,7 @@ from .types import (
 )
 from .agent import Agent
 from .worker import Worker
+from .workflow_worker import WorkflowWorker
 from .workflow import CancellationScope
 
 __all__ = [
@@ -129,11 +131,13 @@ __all__ = [
     "WorkflowQueryDefinition",
     "WorkflowQueryPayload",
     "WorkflowRegistry",
+    "WorkflowRuntimePayload",
     "WorkflowSignalDefinition",
     "WorkflowStartOptions",
     "WorkflowUpdateHandle",
     "WorkflowUpdateDefinition",
     "WorkflowUpdatePayload",
+    "WorkflowWorker",
     "Worker",
     "activity",
     "types",

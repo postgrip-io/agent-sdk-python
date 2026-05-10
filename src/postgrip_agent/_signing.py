@@ -33,6 +33,15 @@ def encode_public_key(pub: Ed25519PublicKey) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
+def decode_private_key(encoded: str) -> Ed25519PrivateKey:
+    raw = base64.b64decode(encoded)
+    if len(raw) == 64:
+        raw = raw[:32]
+    if len(raw) != 32:
+        raise ValueError(f"Ed25519 private key has {len(raw)} bytes, want 32 or 64")
+    return Ed25519PrivateKey.from_private_bytes(raw)
+
+
 def public_key_id(pub: Ed25519PublicKey) -> str:
     raw = pub.public_bytes(Encoding.Raw, PublicFormat.Raw)
     return hashlib.sha256(raw).hexdigest()[:16]

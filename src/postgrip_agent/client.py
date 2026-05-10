@@ -37,26 +37,35 @@ class Connection:
         agent_host: str | None = None,
         agent_namespace: str = "default",
         agent_queue: str = "default",
+        agent_access_token: str | None = None,
+        agent_refresh_token: str | None = None,
+        agent_access_expires_at: str | datetime | None = None,
+        agent_signing_private_key: str | None = None,
     ):
+        if address == "http://127.0.0.1:4100":
+            address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL", address)
         if "://" not in address:
             address = f"http://{address}"
         self.address = address.rstrip("/")
         self.timeout = timeout
         self.headers = dict(headers or {})
-        self._agent_enrollment_key = agent_enrollment_key or os.environ.get("POSTGRIP_AGENT_ENROLLMENT_KEY")
-        self._agent_id = agent_id or worker_id
+        managed_runtime = os.environ.get("POSTGRIP_AGENT_MANAGED_RUNTIME") == "true"
+        self._agent_enrollment_key = agent_enrollment_key or (None if managed_runtime else os.environ.get("POSTGRIP_AGENT_ENROLLMENT_KEY"))
+        self._agent_id = agent_id or worker_id or os.environ.get("POSTGRIP_AGENT_ID")
         self._agent_name = agent_name
         self._agent_host = agent_host
-        self._agent_namespace = agent_namespace
-        self._agent_queue = agent_queue
-        self._agent_access_token: str | None = None
-        self._agent_refresh_token: str | None = None
-        self._agent_access_expires_at = 0.0
+        self._agent_namespace = os.environ.get("POSTGRIP_AGENT_NAMESPACE", agent_namespace) if agent_namespace == "default" else agent_namespace
+        self._agent_queue = os.environ.get("POSTGRIP_AGENT_TASK_QUEUE", agent_queue) if agent_queue == "default" else agent_queue
+        self._agent_access_token: str | None = agent_access_token or os.environ.get("POSTGRIP_AGENT_ACCESS_TOKEN")
+        self._agent_refresh_token: str | None = agent_refresh_token or os.environ.get("POSTGRIP_AGENT_REFRESH_TOKEN")
+        self._agent_access_expires_at = _parse_timestamp(agent_access_expires_at or os.environ.get("POSTGRIP_AGENT_ACCESS_EXPIRES_AT"))
         self._agent_lock = threading.RLock()
+        self._agent_refresh_lock = threading.Lock()
         # Ed25519 keypair the agent uses to sign requests to agent-authed
         # endpoints. Generated lazily on first enroll and reused for the
         # lifetime of the Connection.
-        self._agent_sign_priv: Ed25519PrivateKey | None = None
+        signing_private_key = agent_signing_private_key or os.environ.get("POSTGRIP_AGENT_SIGNING_PRIVATE_KEY")
+        self._agent_sign_priv: Ed25519PrivateKey | None = _signing.decode_private_key(signing_private_key) if signing_private_key else None
 
     @classmethod
     async def connect(cls, address: str = "http://127.0.0.1:4100", **options: Any) -> "Connection":
@@ -74,6 +83,10 @@ class Connection:
         agent_host: str | None = None,
         namespace: str | None = None,
         queue: str | None = None,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+        access_expires_at: str | datetime | None = None,
+        signing_private_key: str | None = None,
     ) -> None:
         with self._agent_lock:
             if enrollment_key:
@@ -89,22 +102,33 @@ class Connection:
                 self._agent_namespace = namespace
             if queue:
                 self._agent_queue = queue
+            if access_token:
+                self._agent_access_token = access_token
+            if refresh_token:
+                self._agent_refresh_token = refresh_token
+            if access_expires_at:
+                self._agent_access_expires_at = _parse_timestamp(access_expires_at)
+            if signing_private_key:
+                self._agent_sign_priv = _signing.decode_private_key(signing_private_key)
 
     def request(self, method: str, path: str, body: Any = None, *, agent_auth: bool = False) -> Any:
         return self._request(method, path, body, agent_auth=agent_auth)
 
     def _request(self, method: str, path: str, body: Any = None, *, agent_auth: bool = False) -> Any:
         data = b"" if body is None else json.dumps(body).encode()
+        use_agent_auth = agent_auth or self._should_use_agent_runtime_auth(path)
+        if use_agent_auth:
+            self.ensure_agent_session()
         headers = dict(self.headers)
         # Some CDN front-ends block urllib's default UA. Always send a stable
         # SDK identifier so behavior is consistent across local and proxied
         # deployments.
         headers.setdefault("User-Agent", "postgrip-agent-python")
-        if agent_auth and self._agent_access_token:
+        if use_agent_auth and self._agent_access_token:
             headers["Authorization"] = f"Bearer {self._agent_access_token}"
         if body is not None:
             headers["Content-Type"] = "application/json"
-        if agent_auth and self._agent_sign_priv is not None:
+        if use_agent_auth and self._agent_sign_priv is not None:
             split = urlsplit(self.address + path)
             ts = int(time.time())
             headers[_signing.HEADER_AGENT_SIGNATURE_TIMESTAMP] = str(ts)
@@ -121,6 +145,20 @@ class Connection:
             raise RuntimeError(exc.read().decode() or str(exc)) from exc
         return json.loads(raw.decode()) if raw else None
 
+    def _should_use_agent_runtime_auth(self, path: str) -> bool:
+        with self._agent_lock:
+            has_agent_session = bool(self._agent_access_token or self._agent_refresh_token)
+        if not has_agent_session:
+            return False
+        req_path = path.split("?", 1)[0]
+        return (
+            req_path == "/api/v1/tasks"
+            or req_path.startswith("/api/v1/tasks/")
+            or req_path == "/api/v1/workflows"
+            or req_path.startswith("/api/v1/workflows/")
+            or req_path == "/api/v1/namespaces"
+        )
+
     def ensure_agent_session(self, *, namespace: str | None = None, queue: str | None = None, agent_id: str | None = None, worker_id: str | None = None) -> bool:
         with self._agent_lock:
             if namespace:
@@ -132,34 +170,39 @@ class Connection:
                 self._agent_id = resolved_agent_id
             if self._agent_access_token and self._agent_access_expires_at > time.time() + 30:
                 return True
-            refresh_token = self._agent_refresh_token
-            enrollment_key = self._agent_enrollment_key
 
-        if refresh_token:
-            try:
-                self._apply_agent_session(self._request("POST", "/api/v1/agent/session/refresh", {"refreshToken": refresh_token}))
-                return True
-            except Exception:
-                if not enrollment_key:
-                    raise
+        with self._agent_refresh_lock:
+            with self._agent_lock:
+                if self._agent_access_token and self._agent_access_expires_at > time.time() + 30:
+                    return True
+                refresh_token = self._agent_refresh_token
+                enrollment_key = self._agent_enrollment_key
 
-        if not enrollment_key:
-            return False
+            if refresh_token:
+                try:
+                    self._apply_agent_session(self._request("POST", "/api/v1/agent/session/refresh", {"refreshToken": refresh_token}))
+                    return True
+                except Exception:
+                    if not enrollment_key:
+                        raise
 
-        with self._agent_lock:
-            if self._agent_sign_priv is None:
-                self._agent_sign_priv = Ed25519PrivateKey.generate()
-            request = {
-                "enrollmentKey": enrollment_key,
-                "agentId": self._agent_id,
-                "name": self._agent_name or self._agent_id,
-                "host": self._agent_host or socket.gethostname(),
-                "namespaces": [self._agent_namespace or "default"],
-                "queues": [self._agent_queue or "default"],
-                "signaturePublicKey": _signing.encode_public_key(self._agent_sign_priv.public_key()),
-            }
-        self._apply_agent_session(self._request("POST", "/api/v1/agent/enroll", request))
-        return True
+            if not enrollment_key:
+                return False
+
+            with self._agent_lock:
+                if self._agent_sign_priv is None:
+                    self._agent_sign_priv = Ed25519PrivateKey.generate()
+                request = {
+                    "enrollmentKey": enrollment_key,
+                    "agentId": self._agent_id,
+                    "name": self._agent_name or self._agent_id,
+                    "host": self._agent_host or socket.gethostname(),
+                    "namespaces": [self._agent_namespace or "default"],
+                    "queues": [self._agent_queue or "default"],
+                    "signaturePublicKey": _signing.encode_public_key(self._agent_sign_priv.public_key()),
+                }
+            self._apply_agent_session(self._request("POST", "/api/v1/agent/enroll", request))
+            return True
 
     def _apply_agent_session(self, session: dict[str, Any]) -> None:
         with self._agent_lock:
@@ -237,12 +280,15 @@ class Connection:
         self.ensure_agent_session(agent_id=resolved_agent_id)
         return self.request("POST", _agent_task_path(task_id, "events", resolved_agent_id), {"event": event}, agent_auth=True)
 
-    def poll_task(self, *, namespace: str, queue: str, agent_id: str | None = None, worker_id: str | None = None, wait_seconds: int = 20) -> dict[str, Any] | None:
+    def poll_task(self, *, namespace: str, queue: str, agent_id: str | None = None, worker_id: str | None = None, wait_seconds: int = 20, task_types: list[str] | tuple[str, ...] | None = None) -> dict[str, Any] | None:
         resolved_agent_id = agent_id or worker_id
         if not resolved_agent_id:
             raise TypeError("agent_id is required")
         self.ensure_agent_session(namespace=namespace, queue=queue, agent_id=resolved_agent_id)
-        query = urlencode({"namespace": namespace, "queue": queue, "agent_id": resolved_agent_id, "wait_seconds": wait_seconds})
+        query_values = {"namespace": namespace, "queue": queue, "agent_id": resolved_agent_id, "wait_seconds": wait_seconds}
+        if task_types:
+            query_values["task_types"] = ",".join(task_types)
+        query = urlencode(query_values)
         return self.request("GET", f"/api/v1/agent/poll?{query}", agent_auth=True).get("task")
 
     def get_workflow(self, workflow_id_or_run_id: str) -> dict[str, Any]:
@@ -741,6 +787,11 @@ def _duration_ms(value: Any) -> int | None:
 
 
 def _parse_timestamp(value: Any) -> float:
+    if isinstance(value, datetime):
+        parsed = value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
     if not isinstance(value, str) or not value:
         return 0.0
     timestamp = value

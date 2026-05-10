@@ -318,6 +318,7 @@ class WorkflowExecution(TypedDict, total=False):
     type: str
     queue: str
     task_id: str
+    agent_id: str
     state: Literal["running", "succeeded", "failed", "continued_as_new"]
     attempt: int
     run_timeout_ms: int
@@ -452,6 +453,17 @@ class ActivityInvocationPayload(TypedDict, total=False):
     cancellationType: CancellationType
     retry: RetryPolicy
     args: list[Any]
+
+
+class WorkflowRuntimePayload(TypedDict, total=False):
+    runtime_id: str
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    working_dir: str
+    namespace: str
+    queue: str
+    timeout_seconds: int
 
 
 class TimerPayload(TypedDict):
