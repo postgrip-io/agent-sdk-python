@@ -26,7 +26,6 @@ class Agent:
         activities: dict[str, Callable[..., Any]] | Iterable[Callable[..., Any]] | None = None,
         namespace: str = "default",
         identity: str | None = None,
-        enrollment_key: str | None = None,
         name: str | None = None,
         host: str | None = None,
         poll_interval: float = 1,
@@ -40,9 +39,10 @@ class Agent:
         self.activities = _activity_registry(activities or {})
         self.namespace = os.environ.get("POSTGRIP_AGENT_NAMESPACE", namespace) if namespace == "default" else namespace
         managed_runtime = os.environ.get("POSTGRIP_AGENT_MANAGED_RUNTIME") == "true"
+        if not managed_runtime:
+            raise RuntimeError("postgrip-agent: Agent workers must be launched by a PostGrip host agent as managed workflow runtimes; submit workflow.runtime work to an agent pool instead")
         self.identity = identity or os.environ.get("POSTGRIP_AGENT_ID") or f"py-agent-{uuid.uuid4()}"
         self.connection.configure_agent_auth(
-            enrollment_key=enrollment_key or (None if managed_runtime else os.environ.get("POSTGRIP_AGENT_ENROLLMENT_KEY")),
             agent_id=self.identity,
             agent_name=name,
             agent_host=host,

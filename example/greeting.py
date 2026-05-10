@@ -1,24 +1,25 @@
 """End-to-end runnable example for the PostGrip Agent Python SDK.
 
-Registers one activity (``live_greet``) and one workflow class
-(``GreetingWorkflow``), starts an in-process Agent that polls the runtime
-service, then enqueues a workflow execution and waits for the result.
+Running it locally submits a workflow.runtime task to an existing agent pool.
+When the host agent launches the runtime, it registers one activity
+(``live_greet``) and one workflow class (``GreetingWorkflow``) with delegated
+agent credentials.
 
 Run::
 
     export POSTGRIP_AGENT_LIVE_SERVER_URL=https://postgrip.app
     export POSTGRIP_AGENT_AUTH_TOKEN=...           # management-side bearer
-    export POSTGRIP_AGENT_ENROLLMENT_KEY=...       # local standalone only
+    export SDK_EXAMPLE_RUNTIME_ARGS_JSON='["-lc","python -m example.greeting"]'
     python -m example.greeting
 
-In production the PostGrip host agent launches this runtime and injects a
-delegated agent session. ``POSTGRIP_AGENT_ENROLLMENT_KEY`` is only for local
-standalone runs where no host agent is supervising the runtime.
+The SDK does not enroll standalone agents; host agents inject delegated
+managed-runtime credentials.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 
@@ -38,15 +39,27 @@ class GreetingWorkflow:
 
 
 async def main() -> None:
+    if os.environ.get("POSTGRIP_AGENT_MANAGED_RUNTIME") != "true":
+        await submit_managed_runtime()
+        return
+
     address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL") or os.environ.get("POSTGRIP_AGENT_LIVE_SERVER_URL") or "https://agentorchestrator.postgrip.app"
     auth_token = os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN", "")
+    tenant_id = os.environ.get("POSTGRIP_AGENT_TENANT_ID", "")
     queue = os.environ.get("POSTGRIP_AGENT_TASK_QUEUE", "python-example")
+    agent_id = os.environ.get("POSTGRIP_AGENT_ID", "python-example-agent")
 
-    headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
+    headers = {}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    if tenant_id:
+        headers["x-postgrip-agent-tenant-id"] = tenant_id
     client = await Client.connect(address, headers=headers)
 
     agent = Agent(
         client,
+        identity=agent_id,
+        name=agent_id,
         task_queue=queue,
         workflows=[GreetingWorkflow],
         activities=[live_greet],
@@ -57,13 +70,46 @@ async def main() -> None:
     result = await agent.run_until(
         client.execute_workflow(
             GreetingWorkflow,
-            "PostGrip",
+            os.environ.get("SDK_EXAMPLE_GREETING_NAME", "PostGrip"),
             id=workflow_id,
             task_queue=queue,
             timeout=60,
         )
     )
     print(f"workflow {workflow_id} -> {result!r}")
+
+
+async def submit_managed_runtime() -> None:
+    address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL") or os.environ.get("POSTGRIP_AGENT_LIVE_SERVER_URL") or "https://agentorchestrator.postgrip.app"
+    auth_token = os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN", "")
+    tenant_id = os.environ.get("POSTGRIP_AGENT_TENANT_ID", "")
+    headers = {}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    if tenant_id:
+        headers["x-postgrip-agent-tenant-id"] = tenant_id
+    client = await Client.connect(address, headers=headers)
+    args_json = os.environ.get("SDK_EXAMPLE_RUNTIME_ARGS_JSON") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_ARGS_JSON")
+    if not args_json:
+        raise RuntimeError("SDK_EXAMPLE_RUNTIME_ARGS_JSON is required to submit this runtime to an agent pool")
+    args = json.loads(args_json)
+    if not isinstance(args, list) or any(not isinstance(item, str) for item in args):
+        raise RuntimeError("SDK_EXAMPLE_RUNTIME_ARGS_JSON must be a JSON array of strings")
+    queue = os.environ.get("SDK_EXAMPLE_RUNTIME_QUEUE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_QUEUE") or "default"
+    runtime_queue = os.environ.get("SDK_EXAMPLE_RUNTIME_CHILD_QUEUE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_CHILD_QUEUE") or queue
+    task = client.task.workflow_runtime(
+        queue=queue,
+        runtime_queue=runtime_queue,
+        command=os.environ.get("SDK_EXAMPLE_RUNTIME_COMMAND") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_COMMAND") or "sh",
+        args=args,
+        working_dir=os.environ.get("SDK_EXAMPLE_RUNTIME_WORKING_DIR") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_WORKING_DIR"),
+        timeout_seconds=300,
+        lease_timeout_seconds=30,
+        env={
+            "SDK_EXAMPLE_GREETING_NAME": os.environ.get("SDK_EXAMPLE_GREETING_NAME", "PostGrip"),
+        },
+    )
+    print(f"submitted managed workflow runtime task={task['id']} queue={queue} runtime_queue={runtime_queue}", flush=True)
 
 
 if __name__ == "__main__":
