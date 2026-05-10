@@ -6,7 +6,7 @@
 [![CI](https://github.com/postgrip-io/agent-sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/postgrip-io/agent-sdk-python/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/postgrip-io/agent-sdk-python.svg)](LICENSE)
 
-Companion of [`agent-sdk-go`](https://github.com/postgrip-io/agent-sdk-go) and [`agent-sdk-typescript`](https://github.com/postgrip-io/agent-sdk-typescript). Wire shapes are tracked in [`agent-sdk-protocol`](https://github.com/postgrip-io/agent-sdk-protocol).
+Python SDK for defining, submitting, and executing PostGrip workflows. In production, SDK workflow runtimes are supervised by an existing PostGrip agent: the host agent launches the runtime, injects delegated credentials, and keeps generic operational tasks separate from workflow/activity task polling. Companion of [`agent-sdk-go`](https://github.com/postgrip-io/agent-sdk-go) and [`agent-sdk-typescript`](https://github.com/postgrip-io/agent-sdk-typescript). Wire shapes are tracked in [`agent-sdk-protocol`](https://github.com/postgrip-io/agent-sdk-protocol).
 
 **Docs:** [postgrip-io.github.io/agent-sdk-python](https://postgrip-io.github.io/agent-sdk-python/) — quick start, workflow runtime, API guide.
 
@@ -26,7 +26,7 @@ PYTHONPATH=src python -m unittest discover -s test
 ## Layout
 
 ```text
-src/postgrip_agent/   # Python package — Connection / Client / Agent / workflow runtime
+src/postgrip_agent/   # Python package — Connection / Client / workflow runtime
 test/                 # unittest-style tests
 doc/                  # reserved for longer-form prose docs
 .github/workflows/    # CI: build wheel + run tests on 3.11 / 3.12 / 3.13

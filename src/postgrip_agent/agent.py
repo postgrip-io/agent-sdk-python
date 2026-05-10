@@ -12,6 +12,8 @@ from . import activity, workflow
 from .client import Client, Connection
 from .errors import ApplicationFailure, CancelledFailure
 
+WORKFLOW_RUNTIME_TASK_TYPES = ["workflow:", "activity:", "query:", "update:"]
+
 
 class Agent:
     def __init__(
@@ -19,7 +21,7 @@ class Agent:
         client: Client | Connection | None = None,
         *,
         connection: Connection | None = None,
-        task_queue: str,
+        task_queue: str | None = None,
         workflows: dict[str, Callable[..., Any] | type] | Iterable[Callable[..., Any] | type],
         activities: dict[str, Callable[..., Any]] | Iterable[Callable[..., Any]] | None = None,
         namespace: str = "default",
@@ -31,18 +33,25 @@ class Agent:
         max_concurrent_tasks: int = 4,
     ):
         self.connection = _connection_from_client(client, connection)
-        self.task_queue = task_queue
+        self.task_queue = task_queue or os.environ.get("POSTGRIP_AGENT_TASK_QUEUE")
+        if not self.task_queue:
+            raise TypeError("task_queue is required")
         self.workflows = _workflow_registry(workflows)
         self.activities = _activity_registry(activities or {})
-        self.namespace = namespace
-        self.identity = identity or f"py-agent-{uuid.uuid4()}"
+        self.namespace = os.environ.get("POSTGRIP_AGENT_NAMESPACE", namespace) if namespace == "default" else namespace
+        managed_runtime = os.environ.get("POSTGRIP_AGENT_MANAGED_RUNTIME") == "true"
+        self.identity = identity or os.environ.get("POSTGRIP_AGENT_ID") or f"py-agent-{uuid.uuid4()}"
         self.connection.configure_agent_auth(
-            enrollment_key=enrollment_key or os.environ.get("POSTGRIP_AGENT_ENROLLMENT_KEY"),
+            enrollment_key=enrollment_key or (None if managed_runtime else os.environ.get("POSTGRIP_AGENT_ENROLLMENT_KEY")),
             agent_id=self.identity,
             agent_name=name,
             agent_host=host,
             namespace=self.namespace,
             queue=self.task_queue,
+            access_token=os.environ.get("POSTGRIP_AGENT_ACCESS_TOKEN"),
+            refresh_token=os.environ.get("POSTGRIP_AGENT_REFRESH_TOKEN"),
+            access_expires_at=os.environ.get("POSTGRIP_AGENT_ACCESS_EXPIRES_AT"),
+            signing_private_key=os.environ.get("POSTGRIP_AGENT_SIGNING_PRIVATE_KEY"),
         )
         self.poll_interval = poll_interval
         self.max_concurrent_tasks = max(1, int(max_concurrent_tasks))
@@ -73,6 +82,7 @@ class Agent:
                     queue=self.task_queue,
                     agent_id=self.identity,
                     wait_seconds=max(1, int(self.poll_interval)),
+                    task_types=WORKFLOW_RUNTIME_TASK_TYPES,
                 )
                 if not task:
                     await asyncio.sleep(self.poll_interval)
