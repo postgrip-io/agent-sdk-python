@@ -69,10 +69,10 @@ from postgrip_agent import Client, Agent, activity, workflow
 
 # Activities are plain async functions. Use any standard Python; the
 # agent passes a per-task contextvar so activity.heartbeat / milestone
-# / info work from inside the function body.
+# / stdout / stderr / info work from inside the function body.
 @activity.defn
 async def greet(name: str) -> str:
-    activity.milestone("greeting", index=1, total=1)
+    await activity.milestone("greeting", index=1, total=1)
     return f"Hello, {name}"
 
 

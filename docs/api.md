@@ -43,6 +43,8 @@ The full public surface re-exported from `postgrip_agent`.
 |:---------------------------------------------------------------------------|:---------------------------------------------------------|
 | `await activity.heartbeat(details=None)`                                   | Long-running activities ping this on a timer. Raises `CancelledFailure` if the runtime service has requested cancellation. |
 | `await activity.milestone(name, index=..., total=...)`                     | Emit a milestone event for the activity task.            |
+| `await activity.stdout(data, stage=..., details=...)`                      | Emit stdout output for the current activity task.        |
+| `await activity.stderr(data, stage=..., details=...)`                      | Emit stderr output for the current activity task.        |
 | `activity.info()`                                                          | Task id, activity type.                                  |
 
 ## Errors

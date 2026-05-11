@@ -79,7 +79,9 @@ RUN_LABEL = env_any(["POSTGRIP_EXAMPLE_RUN_LABEL", "SDK_EXAMPLE_RUN_LABEL"], "Po
 
 @activity.defn(name="processStep")
 async def process_step(name: str, step: int) -> str:
-    return f"processed step {step} for {name}"
+    result = f"processed step {step} for {name}"
+    await activity.stdout(f"{result}\n", stage="processStep", details={"step": step, "name": name})
+    return result
 
 
 @workflow.defn(name="LongRunningWorkflow")

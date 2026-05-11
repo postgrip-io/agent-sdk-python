@@ -697,6 +697,36 @@ class PythonSdkTests(unittest.TestCase):
         self.assertEqual(milestone["details"]["total"], 10)
         self.assertEqual(milestone["details"]["status"], "completed")
 
+    def test_activity_stdout_stderr_emit_task_output_events(self):
+        @activity.defn
+        async def process_step(name: str) -> str:
+            await activity.stdout(f"processed {name}\n", stage="processStep", details={"name": name})
+            await activity.stderr("diagnostic line\n")
+            return "done"
+
+        connection = FakeConnection()
+        agent = Agent(connection=connection, task_queue="default", workflows={}, activities=[process_step])
+        task = {
+            "id": "activity-task-1",
+            "namespace": "default",
+            "queue": "default",
+            "type": "activity:process_step",
+            "payload": {"activityType": "process_step", "args": ["customers"]},
+            "lease_timeout_seconds": 30,
+        }
+
+        asyncio.run(agent._execute(task))
+
+        stdout = next(event for _task_id, _agent_id, event in connection.events if event["kind"] == "stdout")
+        stderr = next(event for _task_id, _agent_id, event in connection.events if event["kind"] == "stderr")
+        self.assertEqual(stdout["stream"], "stdout")
+        self.assertEqual(stdout["data"], "processed customers\n")
+        self.assertEqual(stdout["stage"], "processStep")
+        self.assertEqual(stdout["details"], {"name": "customers"})
+        self.assertEqual(stderr["stream"], "stderr")
+        self.assertEqual(stderr["data"], "diagnostic line\n")
+        self.assertEqual(stderr["stage"], "activity")
+
     def test_workflow_sandbox_rejects_nondeterministic_api_calls(self):
         @workflow.defn(name="ClockWorkflow")
         class ClockWorkflow:
