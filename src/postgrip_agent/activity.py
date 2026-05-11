@@ -101,6 +101,26 @@ async def milestone(
     })
 
 
+async def stdout(
+    data: str,
+    *,
+    stage: str | None = None,
+    message: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    await _emit_output("stdout", data, stage=stage, message=message, details=details)
+
+
+async def stderr(
+    data: str,
+    *,
+    stage: str | None = None,
+    message: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    await _emit_output("stderr", data, stage=stage, message=message, details=details)
+
+
 async def run_in_activity_runtime(runtime: _ActivityRuntime, fn: Callable[[], R | Awaitable[R]]) -> R:
     token = _activity_runtime.set(runtime)
     try:
@@ -110,6 +130,27 @@ async def run_in_activity_runtime(runtime: _ActivityRuntime, fn: Callable[[], R 
         return value
     finally:
         _activity_runtime.reset(token)
+
+
+async def _emit_output(
+    stream: str,
+    data: str,
+    *,
+    stage: str | None,
+    message: str | None,
+    details: dict[str, Any] | None,
+) -> None:
+    runtime = _activity_runtime.get()
+    if runtime is None:
+        raise RuntimeError(f"activity.{stream}() called outside of a PostGrip activity runtime")
+    await runtime.emit({
+        "kind": stream,
+        "stage": stage or "activity",
+        "message": message,
+        "stream": stream,
+        "data": data,
+        "details": dict(details or {}),
+    })
 
 
 def _milestone_message(name: str, *, index: int | None, total: int | None, status: str) -> str:
@@ -125,4 +166,6 @@ __all__ = [
     "info",
     "milestone",
     "run_in_activity_runtime",
+    "stderr",
+    "stdout",
 ]
