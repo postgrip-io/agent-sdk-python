@@ -6,7 +6,7 @@
 [![CI](https://github.com/postgrip-io/agent-sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/postgrip-io/agent-sdk-python/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/postgrip-io/agent-sdk-python.svg)](LICENSE)
 
-Python SDK for defining, submitting, and executing PostGrip workflows. In production, SDK workflow runtimes are supervised by an existing PostGrip agent: the host agent launches the runtime, injects delegated credentials, and keeps generic operational tasks separate from workflow/activity task polling. Companion of [`agent-sdk-go`](https://github.com/postgrip-io/agent-sdk-go) and [`agent-sdk-typescript`](https://github.com/postgrip-io/agent-sdk-typescript). Wire shapes are tracked in [`agent-sdk-protocol`](https://github.com/postgrip-io/agent-sdk-protocol).
+Python SDK for defining, submitting, and executing PostGrip workflows. In production, SDK workflow runtimes are supervised by an existing PostGrip agent: the host agent launches the runtime, injects delegated credentials, and keeps generic operational tasks separate from workflow/activity task polling. Client-side SDK code submits `workflow.runtime` tasks to an existing agent pool; it does not enroll or spawn standalone PostGrip agents. Companion of [`agent-sdk-go`](https://github.com/postgrip-io/agent-sdk-go) and [`agent-sdk-typescript`](https://github.com/postgrip-io/agent-sdk-typescript). Wire shapes are tracked in [`agent-sdk-protocol`](https://github.com/postgrip-io/agent-sdk-protocol).
 
 **Docs:** [postgrip-io.github.io/agent-sdk-python](https://postgrip-io.github.io/agent-sdk-python/) — quick start, workflow runtime, API guide.
 
@@ -103,7 +103,7 @@ async def submit_runtime() -> None:
         # Agent token from Settings > Organization > Agent tokens.
         headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
     )
-    await client.task.workflow_runtime(
+    client.task.workflow_runtime(
         queue="default",
         command="python",
         args=["-m", "myapp.workflow_runtime"],
@@ -121,26 +121,7 @@ Implemented workflow APIs include durable activity scheduling/replay, durable ti
 
 The Python agent supports bounded concurrent task execution with `max_concurrent_tasks` defaulting to `4`, graceful shutdown draining for in-flight tasks with an optional timeout, and automatic lease renewal for workflow, query, update, and activity tasks. Activities and workflows can emit ordered milestones with `activity.milestone("step name", index=1, total=10)` or `workflow.milestone(...)`; activities can also attach task output with `activity.stdout(...)` and `activity.stderr(...)`. Clients can stream those task events with `handle.watch_events()` or `client.task.watch_events(task_id)`. Workflow execution also performs sandbox checks that reject common nondeterministic APIs such as `time.time()`, `time.sleep()`, `asyncio.sleep()`, `random.*()`, and `uuid.uuid4()`; use `workflow.now()`, `workflow.sleep()`, explicit IDs, or activities for those operations.
 
-Public protocol types are available from `postgrip_agent.types` and are re-exported from `postgrip_agent`, including `Task`, `TaskEvent`, `WorkflowExecution`, `WorkflowHistoryEvent`, `RetryPolicy`, schedule request/response types, and workflow payload definitions. The package includes `py.typed` so type checkers can consume those annotations.
-
-Lower-level task API:
-
-```python
-client.task.shell_exec(command="echo", args=["hello from agent"])
-
-# Polyglot: the Go agent runs the command inside a per-task container
-# (proxied through the worker stack's docker socket proxy). The agent
-# process must have DOCKER_HOST set; the container runs with --rm
-# --network=none and no host mounts. The env-key allowlist rejects
-# DOCKER_*, POSTGRIP_*, and host loader/interpreter prefixes.
-client.task.container_exec(
-    image="node:22-alpine",
-    command="node",
-    args=["-e", "console.log('hi from node')"],
-    pull_policy="missing",
-    timeout_seconds=60,
-)
-```
+Public protocol types are available from `postgrip_agent.types` and are re-exported from `postgrip_agent`, including `Task`, `TaskEvent`, `WorkflowExecution`, `WorkflowHistoryEvent`, `RetryPolicy`, schedule request/response types, and workflow payload definitions. The package includes `py.typed` so type checkers can consume those annotations. For SDK applications, the documented client-side submission path is `client.task.workflow_runtime(...)`; workflow and activity tasks are then coordinated by the managed runtime launched on the host agent.
 
 Package validation:
 

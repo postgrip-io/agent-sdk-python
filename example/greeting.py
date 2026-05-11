@@ -118,18 +118,8 @@ async def submit_managed_runtime() -> None:
 
 
 def agent_token_headers() -> dict[str, str]:
-    headers: dict[str, str] = {}
     token = os.environ.get("POSTGRIP_AGENT_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-        return headers
-
-    token = os.environ.get("POSTGRIP_AGENT_MANAGEMENT_TOKEN") or os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN", "")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if os.environ.get("POSTGRIP_AGENT_TENANT_ID"):
-        headers["x-postgrip-agent-tenant-id"] = os.environ["POSTGRIP_AGENT_TENANT_ID"]
-    return headers
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 if __name__ == "__main__":

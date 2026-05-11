@@ -1,10 +1,14 @@
 # Quick start
 
-Two examples: enqueueing a task as a client, and running an agent that registers a workflow + activity.
+Two pieces make up the normal SDK flow: a client submits a managed
+`workflow.runtime` task to an existing PostGrip agent pool, and that managed
+runtime registers workflow and activity functions.
 
-## Enqueue a task
+## Submit a workflow runtime
 
-A program that just hands work to the runtime service needs only the `Client`.
+A client process uses an Agent token from Settings > Organization > Agent tokens
+and submits a `workflow.runtime` task. The host PostGrip agent launches the
+runtime process and injects delegated credentials.
 
 ```python
 import asyncio
@@ -18,50 +22,30 @@ async def main() -> None:
         headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
     )
 
-    # shell.exec — runs whatever's on the agent's PATH.
-    task = await client.task.shell_exec(
-        command="echo",
-        args=["hello from agent"],
+    task = client.task.workflow_runtime(
         queue="default",
+        command="python",
+        args=["-m", "myapp.workflow_runtime"],
+        runtime_queue="default",
+        env={"POSTGRIP_EXAMPLE_RUN_LABEL": "PostGrip"},
     )
-    print("enqueued", task.id)
-
-    # container.exec — runs in a per-task container. Polyglot without
-    # bloating the agent image.
-    await client.task.container_exec(
-        image="node:22-alpine",
-        command="node",
-        args=["-e", "console.log('hi from node')"],
-        queue="default",
-        pull_policy="missing",
-        timeout_seconds=60,
-    )
+    print("submitted workflow runtime", task["id"])
 
 
 asyncio.run(main())
 ```
 
 !!! note
-    `container.exec` requires the agent process to have `DOCKER_HOST` set so the container runs through the worker stack's docker socket proxy. Containers run with `--rm --network=none`, no host volume mounts, and the same env-key allowlist as `shell.exec`.
+    The SDK does not enroll standalone PostGrip agents. It submits workflow runtimes to agent pools that are already enrolled in PostGrip.
 
-## Wait for a result
+## Run a managed workflow runtime worker
 
-`client.task.result(task_id)` blocks until the task reaches a terminal state and decodes the result value:
-
-```python
-result = await client.task.result(task.id)
-print("result:", result)
-```
-
-Pass an `asyncio` deadline (e.g. via `asyncio.wait_for`) if you want to cap how long you wait.
-
-## Run an agent
-
-Agents register workflow and activity functions, then poll the runtime service for tasks.
+The runtime process is launched by a host agent from the `workflow.runtime`
+task. Inside that process, an SDK `Agent` registers workflow and activity
+functions, then polls for workflow/activity tasks using delegated credentials.
 
 ```python
 import asyncio
-import os
 from datetime import timedelta
 
 from postgrip_agent import Client, Agent, activity, workflow
@@ -91,10 +75,8 @@ class SayHelloWorkflow:
 
 
 async def main() -> None:
-    client = await Client.connect(
-        # Agent token from Settings > Organization > Agent tokens.
-        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
-    )
+    # The host agent injects delegated runtime credentials.
+    client = await Client.connect()
 
     agent = Agent(
         client,
@@ -103,9 +85,9 @@ async def main() -> None:
         activities=[greet],
     )
 
-    # run_until pairs starting an agent with awaiting a workflow handle —
-    # convenient for scripts. For long-lived workers, use agent.run() and
-    # wire your own shutdown signaling.
+    # run_until pairs starting the runtime worker with awaiting a workflow
+    # handle. For long-lived runtimes, use agent.run() and wire your own
+    # shutdown signaling.
     handle = await client.execute_workflow(
         SayHelloWorkflow,
         "PostGrip",
@@ -119,7 +101,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-The agent loops forever (or until cancelled), leasing tasks from the configured queue, heartbeating each leased task, and dispatching to your registered functions. Concurrency is bounded by `max_concurrent_tasks` (default 4).
+The SDK `Agent` loops forever inside the managed runtime, leasing tasks from the configured queue, heartbeating each leased task, and dispatching to your registered functions. Concurrency is bounded by `max_concurrent_tasks` (default 4).
 
 ## Start a workflow from elsewhere
 
