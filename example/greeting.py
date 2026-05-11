@@ -30,9 +30,10 @@ load_example_env()
 
 DEFAULT_RUNTIME_IMAGE = "python:3.13-slim"
 DEFAULT_RUNTIME_COMMAND = "sh"
+DEFAULT_RUNTIME_REF = "da9cb81c9dc6f05efaf5e856248224d2ae06d173"
 DEFAULT_RUNTIME_ARGS = [
     "-lc",
-    "python -m pip install cryptography >/dev/null && python -c \"import urllib.request,zipfile,io; data=urllib.request.urlopen('https://github.com/postgrip-io/agent-sdk-python/archive/refs/heads/main.zip').read(); zipfile.ZipFile(io.BytesIO(data)).extractall('/tmp')\" && cd /tmp/agent-sdk-python-main && PYTHONPATH=src python -m example.greeting",
+    "python -m pip install cryptography >/dev/null && python -c \"import os,urllib.request,zipfile,io; ref=os.environ.get('SDK_EXAMPLE_RUNTIME_REF','da9cb81c9dc6f05efaf5e856248224d2ae06d173'); data=urllib.request.urlopen(f'https://github.com/postgrip-io/agent-sdk-python/archive/{ref}.zip').read(); zipfile.ZipFile(io.BytesIO(data)).extractall('/tmp')\" && cd /tmp/agent-sdk-python-* && PYTHONPATH=src python -m example.greeting",
 ]
 
 
@@ -109,14 +110,26 @@ async def submit_managed_runtime() -> None:
         lease_timeout_seconds=30,
         env={
             "SDK_EXAMPLE_GREETING_NAME": os.environ.get("SDK_EXAMPLE_GREETING_NAME", "PostGrip"),
+            "SDK_EXAMPLE_RUNTIME_REF": os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_REF")
+            or os.environ.get("SDK_EXAMPLE_RUNTIME_REF", DEFAULT_RUNTIME_REF),
         },
     )
     print(f"submitted managed workflow runtime task={task['id']} queue={queue} runtime_queue={runtime_queue}", flush=True)
 
 
 def agent_token_headers() -> dict[str, str]:
-    token = os.environ.get("POSTGRIP_AGENT_TOKEN") or os.environ.get("POSTGRIP_AGENT_MANAGEMENT_TOKEN", "")
-    return {"Authorization": f"Bearer {token}"} if token else {}
+    headers: dict[str, str] = {}
+    token = os.environ.get("POSTGRIP_AGENT_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    token = os.environ.get("POSTGRIP_AGENT_MANAGEMENT_TOKEN") or os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN", "")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if os.environ.get("POSTGRIP_AGENT_TENANT_ID"):
+        headers["x-postgrip-agent-tenant-id"] = os.environ["POSTGRIP_AGENT_TENANT_ID"]
+    return headers
 
 
 if __name__ == "__main__":
