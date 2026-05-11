@@ -15,12 +15,13 @@ workflow class.
 ```sh
 pip install -e .
 
-export POSTGRIP_AGENT_LIVE_SERVER_URL=https://postgrip.app
-export POSTGRIP_AGENT_AUTH_TOKEN=...           # management-side bearer token
-export SDK_EXAMPLE_RUNTIME_IMAGE=python:3.13-slim # optional; runs via host agent helper
-export SDK_EXAMPLE_RUNTIME_ARGS_JSON='["-lc","python -m example.greeting"]'
+cp example/.env.example .env
+# edit .env and set POSTGRIP_AGENT_TOKEN to your Agent token
 python -m example.greeting
 ```
+
+The generated `.env` file is ignored by git. The committed
+`example/.env.example` contains placeholders only.
 
 Optional overrides:
 

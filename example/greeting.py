@@ -7,9 +7,8 @@ agent credentials.
 
 Run::
 
-    export POSTGRIP_AGENT_LIVE_SERVER_URL=https://postgrip.app
-    export POSTGRIP_AGENT_AUTH_TOKEN=...           # management-side bearer
-    export SDK_EXAMPLE_RUNTIME_ARGS_JSON='["-lc","python -m example.greeting"]'
+    cp example/.env.example .env
+    # edit .env and set POSTGRIP_AGENT_TOKEN to your Agent token
     python -m example.greeting
 
 The SDK does not enroll standalone agents; host agents inject delegated
@@ -24,6 +23,17 @@ import os
 import uuid
 
 from postgrip_agent import Agent, Client, activity, workflow
+
+from example.env import load_example_env
+
+load_example_env()
+
+DEFAULT_RUNTIME_IMAGE = "python:3.13-slim"
+DEFAULT_RUNTIME_COMMAND = "sh"
+DEFAULT_RUNTIME_ARGS = [
+    "-lc",
+    "python -m pip install cryptography >/dev/null && python -c \"import urllib.request,zipfile,io; data=urllib.request.urlopen('https://github.com/postgrip-io/agent-sdk-python/archive/refs/heads/main.zip').read(); zipfile.ZipFile(io.BytesIO(data)).extractall('/tmp')\" && cd /tmp/agent-sdk-python-main && PYTHONPATH=src python -m example.greeting",
+]
 
 
 @activity.defn(name="live_greet")
@@ -44,17 +54,10 @@ async def main() -> None:
         return
 
     address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL") or os.environ.get("POSTGRIP_AGENT_LIVE_SERVER_URL") or "https://agentorchestrator.postgrip.app"
-    auth_token = os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN", "")
-    tenant_id = os.environ.get("POSTGRIP_AGENT_TENANT_ID", "")
     queue = os.environ.get("POSTGRIP_AGENT_TASK_QUEUE", "python-example")
     agent_id = os.environ.get("POSTGRIP_AGENT_ID", "python-example-agent")
 
-    headers = {}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-    if tenant_id:
-        headers["x-postgrip-agent-tenant-id"] = tenant_id
-    client = await Client.connect(address, headers=headers)
+    client = await Client.connect(address, headers=agent_token_headers())
 
     agent = Agent(
         client,
@@ -87,18 +90,9 @@ async def main() -> None:
 
 async def submit_managed_runtime() -> None:
     address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL") or os.environ.get("POSTGRIP_AGENT_LIVE_SERVER_URL") or "https://agentorchestrator.postgrip.app"
-    auth_token = os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN", "")
-    tenant_id = os.environ.get("POSTGRIP_AGENT_TENANT_ID", "")
-    headers = {}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
-    if tenant_id:
-        headers["x-postgrip-agent-tenant-id"] = tenant_id
-    client = await Client.connect(address, headers=headers)
+    client = await Client.connect(address, headers=agent_token_headers())
     args_json = os.environ.get("SDK_EXAMPLE_RUNTIME_ARGS_JSON") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_ARGS_JSON")
-    if not args_json:
-        raise RuntimeError("SDK_EXAMPLE_RUNTIME_ARGS_JSON is required to submit this runtime to an agent pool")
-    args = json.loads(args_json)
+    args = json.loads(args_json) if args_json else DEFAULT_RUNTIME_ARGS
     if not isinstance(args, list) or any(not isinstance(item, str) for item in args):
         raise RuntimeError("SDK_EXAMPLE_RUNTIME_ARGS_JSON must be a JSON array of strings")
     queue = os.environ.get("SDK_EXAMPLE_RUNTIME_QUEUE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_QUEUE") or "default"
@@ -106,8 +100,8 @@ async def submit_managed_runtime() -> None:
     task = client.task.workflow_runtime(
         queue=queue,
         runtime_queue=runtime_queue,
-        image=os.environ.get("SDK_EXAMPLE_RUNTIME_IMAGE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_IMAGE"),
-        command=os.environ.get("SDK_EXAMPLE_RUNTIME_COMMAND") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_COMMAND") or "sh",
+        image=os.environ.get("SDK_EXAMPLE_RUNTIME_IMAGE") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_IMAGE") or DEFAULT_RUNTIME_IMAGE,
+        command=os.environ.get("SDK_EXAMPLE_RUNTIME_COMMAND") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_COMMAND") or DEFAULT_RUNTIME_COMMAND,
         args=args,
         working_dir=os.environ.get("SDK_EXAMPLE_RUNTIME_WORKING_DIR") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_WORKING_DIR"),
         pull_policy=os.environ.get("SDK_EXAMPLE_RUNTIME_PULL_POLICY") or os.environ.get("POSTGRIP_EXAMPLE_RUNTIME_PULL_POLICY"),
@@ -118,6 +112,11 @@ async def submit_managed_runtime() -> None:
         },
     )
     print(f"submitted managed workflow runtime task={task['id']} queue={queue} runtime_queue={runtime_queue}", flush=True)
+
+
+def agent_token_headers() -> dict[str, str]:
+    token = os.environ.get("POSTGRIP_AGENT_TOKEN") or os.environ.get("POSTGRIP_AGENT_MANAGEMENT_TOKEN", "")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 if __name__ == "__main__":

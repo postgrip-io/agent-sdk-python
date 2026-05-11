@@ -60,9 +60,7 @@ class SayHelloWorkflow:
 async def main() -> None:
     # This process is launched by a PostGrip host agent from a workflow.runtime
     # task. The host injects POSTGRIP_AGENT_ID and delegated runtime credentials.
-    client = await Client.connect(
-        "http://127.0.0.1:4100",
-    )
+    client = await Client.connect()
     agent = Agent(
         client,
         task_queue="default",
@@ -102,8 +100,8 @@ from postgrip_agent import Client
 
 async def submit_runtime() -> None:
     client = await Client.connect(
-        "https://agentorchestrator.postgrip.app",
-        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
+        # Agent token from Settings > Organization > Agent tokens.
+        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
     )
     await client.task.workflow_runtime(
         queue="default",
