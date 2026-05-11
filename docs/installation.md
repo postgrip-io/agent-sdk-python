@@ -13,7 +13,7 @@ pip install postgrip-agent==0.1.0
 ## Requirements
 
 - **Python 3.11 or newer.** The SDK uses [`asyncio`](https://docs.python.org/3/library/asyncio.html), `contextvars`, and structural typing patterns that target 3.11 / 3.12 / 3.13.
-- A reachable PostGrip Agent runtime service. The default address is `http://127.0.0.1:4100`.
+- A reachable PostGrip Agent runtime service. The default address is `https://agentorchestrator.postgrip.app`.
 
 ## Importing
 
@@ -51,8 +51,9 @@ from postgrip_agent import Client
 
 client = await Client.connect(
     "http://127.0.0.1:4100",
-    headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
+    # Agent token from Settings > Organization > Agent tokens.
+    headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
 )
 ```
 
-`Client.connect` is async; call it from inside an `async def` function and `await` the result, or wrap with `asyncio.run(...)` at the top of a script.
+`Client.connect` defaults to PostGrip Cloud if the address is omitted. For local or self-hosted development, pass the address explicitly as shown above or set `POSTGRIP_AGENTORCHESTRATOR_URL`.

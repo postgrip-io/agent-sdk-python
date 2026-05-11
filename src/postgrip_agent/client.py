@@ -21,12 +21,13 @@ from .workflow import workflow_name
 
 _MISSING = object()
 _POSTGRIP_UI_MEMO_KEY = "postgrip.ui"
+DEFAULT_ADDRESS = "https://agentorchestrator.postgrip.app"
 
 
 class Connection:
     def __init__(
         self,
-        address: str = "http://127.0.0.1:4100",
+        address: str | None = None,
         *,
         timeout: float = 30,
         headers: dict[str, str] | None = None,
@@ -41,8 +42,8 @@ class Connection:
         agent_access_expires_at: str | datetime | None = None,
         agent_signing_private_key: str | None = None,
     ):
-        if address == "http://127.0.0.1:4100":
-            address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL", address)
+        if not address:
+            address = os.environ.get("POSTGRIP_AGENTORCHESTRATOR_URL") or DEFAULT_ADDRESS
         if "://" not in address:
             address = f"http://{address}"
         self.address = address.rstrip("/")
@@ -64,7 +65,7 @@ class Connection:
         self._agent_sign_priv: Ed25519PrivateKey | None = _signing.decode_private_key(signing_private_key) if signing_private_key else None
 
     @classmethod
-    async def connect(cls, address: str = "http://127.0.0.1:4100", **options: Any) -> "Connection":
+    async def connect(cls, address: str | None = None, **options: Any) -> "Connection":
         connection = cls(address, **options)
         await asyncio.to_thread(connection.health)
         return connection
@@ -334,7 +335,7 @@ class Client:
         self.schedule = ScheduleClient(self.connection)
 
     @classmethod
-    async def connect(cls, address: str = "http://127.0.0.1:4100", **options: Any) -> "Client":
+    async def connect(cls, address: str | None = None, **options: Any) -> "Client":
         return cls(await Connection.connect(address, **options))
 
     async def start_workflow(self, workflow: Callable[..., Any] | str, *args: Any, **options: Any) -> "WorkflowHandle":

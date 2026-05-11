@@ -21,14 +21,15 @@ class LiveGreetingWorkflow:
 
 
 @unittest.skipUnless(
-    os.environ.get("POSTGRIP_AGENT_LIVE_SERVER_URL") and os.environ.get("POSTGRIP_AGENT_AUTH_TOKEN"),
-    "set POSTGRIP_AGENT_LIVE_SERVER_URL and POSTGRIP_AGENT_AUTH_TOKEN to run live server smoke",
+    os.environ.get("POSTGRIP_AGENT_LIVE_SERVER_URL")
+    and (os.environ.get("POSTGRIP_AGENT_TOKEN") or os.environ.get("POSTGRIP_AGENT_MANAGEMENT_TOKEN")),
+    "set POSTGRIP_AGENT_LIVE_SERVER_URL and POSTGRIP_AGENT_TOKEN to run live server smoke",
 )
 class LiveServerSmokeTests(unittest.TestCase):
     def test_execute_workflow_with_activity_against_live_server(self):
         async def run_smoke() -> str:
             address = os.environ["POSTGRIP_AGENT_LIVE_SERVER_URL"]
-            auth_token = os.environ["POSTGRIP_AGENT_AUTH_TOKEN"]
+            auth_token = os.environ.get("POSTGRIP_AGENT_TOKEN") or os.environ["POSTGRIP_AGENT_MANAGEMENT_TOKEN"]
             queue = f"python-live-{uuid.uuid4()}"
             client = await Client.connect(address, headers={"Authorization": f"Bearer {auth_token}"})
             agent = Agent(

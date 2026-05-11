@@ -14,8 +14,8 @@ from postgrip_agent import Client
 
 async def main() -> None:
     client = await Client.connect(
-        "http://127.0.0.1:4100",
-        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
+        # Agent token from Settings > Organization > Agent tokens.
+        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
     )
 
     # shell.exec — runs whatever's on the agent's PATH.
@@ -92,8 +92,8 @@ class SayHelloWorkflow:
 
 async def main() -> None:
     client = await Client.connect(
-        "http://127.0.0.1:4100",
-        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_AUTH_TOKEN']}"},
+        # Agent token from Settings > Organization > Agent tokens.
+        headers={"Authorization": f"Bearer {os.environ['POSTGRIP_AGENT_TOKEN']}"},
     )
 
     agent = Agent(
