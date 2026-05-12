@@ -2,6 +2,8 @@
 
 Run shell commands, container workloads, and durable workflows on the PostGrip Agent runtime service from your Python code.
 
+**Current release:** `0.11.0`
+
 [Quick start →](quickstart.md){ .md-button .md-button--primary }
 [GitHub](https://github.com/postgrip-io/agent-sdk-python){ .md-button }
 [PyPI](https://pypi.org/project/postgrip-agent/){ .md-button }

@@ -10,6 +10,8 @@ Python SDK for defining, submitting, and executing PostGrip workflows. In produc
 
 **Docs:** [postgrip-io.github.io/agent-sdk-python](https://postgrip-io.github.io/agent-sdk-python/) — quick start, workflow runtime, API guide.
 
+**Current release:** `0.11.0`
+
 Install from PyPI after publishing:
 
 ```bash
